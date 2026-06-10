@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Lint, Type-check & Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Type-check
+        run: mypy app
+
+      - name: Unit tests
+        run: pytest tests/unit/ -q
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: check
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: testoria_test
+          POSTGRES_USER: testoria
+          POSTGRES_PASSWORD: testoria
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U testoria -d testoria_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6380:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://testoria:testoria@localhost:5433/testoria_test
+        run: alembic upgrade head
+
+      - name: Integration tests
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://testoria:testoria@localhost:5433/testoria_test
+          TEST_REDIS_URL: redis://localhost:6380/0
+          SECRET_KEY: ci-test-secret-key
+        run: pytest tests/integration/ -q

@@ -1,0 +1,199 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GH_PAT,GHCR_TOKEN,GHCR_USER,REGISTRY,IMAGE_NAME,POSTGRES_PASSWORD,DATABASE_URL,SECRET_KEY,CENTRIFUGO_API_KEY,CENTRIFUGO_TOKEN_SECRET,ADMIN_PASSWORD,S3_SECRET_KEY,EMAIL_SMTP_PASSWORD
+          script: |
+            git config --global credential.helper store
+            printf "https://x-access-token:%s@github.com\n" "$GH_PAT" > ~/.git-credentials
+            chmod 600 ~/.git-credentials
+
+            if [ -d ~/api-testoria/.git ]; then
+              cd ~/api-testoria && git pull origin main
+            else
+              git clone https://github.com/${{ github.repository }}.git ~/api-testoria
+            fi
+
+            rm -f ~/.git-credentials
+            git config --global --unset credential.helper || true
+
+            echo "$GH_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+            cd ~/api-testoria
+
+            # Write .env.prod: non-secret config inline, secret values appended
+            # from GitHub secrets. Aborts the deploy (before any compose command)
+            # if a secret is missing, so the running stack is never touched with a
+            # broken env.
+            : "${POSTGRES_PASSWORD:?missing GitHub secret POSTGRES_PASSWORD}"
+            : "${DATABASE_URL:?missing GitHub secret DATABASE_URL}"
+            : "${SECRET_KEY:?missing GitHub secret SECRET_KEY}"
+            : "${CENTRIFUGO_API_KEY:?missing GitHub secret CENTRIFUGO_API_KEY}"
+            : "${CENTRIFUGO_TOKEN_SECRET:?missing GitHub secret CENTRIFUGO_TOKEN_SECRET}"
+            : "${ADMIN_PASSWORD:?missing GitHub secret ADMIN_PASSWORD}"
+            : "${S3_SECRET_KEY:?missing GitHub secret S3_SECRET_KEY}"
+            : "${EMAIL_SMTP_PASSWORD:?missing GitHub secret EMAIL_SMTP_PASSWORD}"
+
+            umask 077
+            cat > .env.prod <<'ENVEOF'
+            # Testoria API — Production. Generated at deploy by cd.yml. Non-secret config.
+            GITHUB_REPOSITORY=${{ github.repository }}
+            ACCESS_TOKEN_EXPIRE_MINUTES=30
+            REFRESH_TOKEN_EXPIRE_DAYS=7
+            ALGORITHM=HS256
+            REDIS_URL=redis://redis:6379/0
+            CELERY_BROKER_URL=redis://redis:6379/1
+            CELERY_RESULT_BACKEND=redis://redis:6379/2
+            CORS_ORIGINS=["https://testoria.gammait.net","https://api.testoria.gammait.net"]
+            UPLOAD_DIR=/data/uploads
+            MINIO_ROOT_USER=testoria
+            S3_ENDPOINT_URL=http://minio:9000
+            S3_ACCESS_KEY=testoria
+            S3_BUCKET_ATTACHMENTS=testoria-attachments
+            S3_PUBLIC_ENDPOINT_URL=https://s3.testoria.gammait.net
+            DEFAULT_PAGE_SIZE=50
+            MAX_PAGE_SIZE=100
+            ADMIN_USERNAME=admin
+            ADMIN_EMAIL=admin@testoria.net
+            CENTRIFUGO_URL=http://centrifugo:8000
+            EMAIL_ENABLED=true
+            EMAIL_SMTP_HOST=smtp.gmail.com
+            EMAIL_SMTP_PORT=587
+            EMAIL_SMTP_USER=gammaitmd@gmail.com
+            EMAIL_FROM=Testoria <gammaitmd@gmail.com>
+            FRONTEND_BASE_URL=https://testoria.gammait.net
+            DEBUG=false
+            ENVEOF
+            {
+              printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+              printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+              printf 'SECRET_KEY=%s\n' "$SECRET_KEY"
+              printf 'CENTRIFUGO_API_KEY=%s\n' "$CENTRIFUGO_API_KEY"
+              printf 'CENTRIFUGO_TOKEN_SECRET=%s\n' "$CENTRIFUGO_TOKEN_SECRET"
+              printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
+              printf 'S3_SECRET_KEY=%s\n' "$S3_SECRET_KEY"
+              printf 'MINIO_ROOT_PASSWORD=%s\n' "$S3_SECRET_KEY"
+              printf 'EMAIL_SMTP_PASSWORD=%s\n' "$EMAIL_SMTP_PASSWORD"
+            } >> .env.prod
+
+            # Start infra (DB, cache, realtime, object storage) first, then run migrations.
+            # MinIO is required for attachment uploads at runtime; the API depends_on it.
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d postgres redis centrifugo minio
+            docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm api alembic upgrade head
+
+            # Start API container
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d api
+
+            # Health check — wait up to 30s
+            echo "Waiting for health check..."
+            # Health check — python is available in the API container
+            for i in $(seq 1 10); do
+              docker compose --env-file .env.prod -f docker-compose.prod.yml exec api \
+                python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" \
+                && break || sleep 3
+            done
+
+            # Refresh the host nginx config (api + s3 vhost and the shared maps)
+            # and reload. The edge is host-level nginx now — no proxy container,
+            # no cross-repo ~/testoria checkout, no docker network ownership.
+            # Prereq (one-time, see deploy runbook): the deploy user has
+            # passwordless sudo for `install`, `ln`, `nginx`, `systemctl reload nginx`.
+            cd ~/api-testoria
+            sudo install -m 0644 deploy/nginx-maps.conf /etc/nginx/conf.d/00-testoria-maps.conf
+            sudo install -m 0644 deploy/api.vhost.conf  /etc/nginx/sites-available/api.vhost.conf
+            sudo ln -sfn /etc/nginx/sites-available/api.vhost.conf /etc/nginx/sites-enabled/api.vhost.conf
+            sudo nginx -t
+            sudo systemctl reload nginx
+
+            # Verify the public API responds through host nginx before finishing.
+            curl --fail --retry 5 --retry-delay 3 --retry-all-errors \
+              https://api.testoria.gammait.net/api/v1/health
+
+            docker image prune -f
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          CENTRIFUGO_API_KEY: ${{ secrets.CENTRIFUGO_API_KEY }}
+          CENTRIFUGO_TOKEN_SECRET: ${{ secrets.CENTRIFUGO_TOKEN_SECRET }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}

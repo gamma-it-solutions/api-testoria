@@ -1,0 +1,21 @@
+{% extends "layout.html" %}
+{% block title %}Welcome to Testoria{% endblock %}
+{% block content %}
+  <p style="margin:0 0 16px;">Hi {{ full_name or username }},</p>
+  <p style="margin:0 0 16px;">
+    An account has been created for you on <strong>Testoria</strong>. To finish
+    setting up, choose a password using the button below.
+  </p>
+  <p style="margin:0 0 24px;text-align:center;">
+    <a href="{{ link }}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:6px;font-weight:bold;">Set your password</a>
+  </p>
+  <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">
+    If the button does not work, paste this link into your browser:
+  </p>
+  <p style="margin:0 0 16px;word-break:break-all;font-size:13px;">
+    <a href="{{ link }}" style="color:#2563eb;">{{ link }}</a>
+  </p>
+  <p style="margin:0;color:#6b7280;font-size:13px;">
+    This link expires in 24 hours.
+  </p>
+{% endblock %}

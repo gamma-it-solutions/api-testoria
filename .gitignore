@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment files — only .env.example is committed.
+#   dev   → your own .env / .env.local (git-ignored; copy from .env.example)
+#   prod  → .env.prod is written on the server at deploy time by
+#           .github/workflows/cd.yml (non-secret config inline + secrets from
+#           GitHub Actions secrets) — never commit real values.
+.env
+.env.*
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Mypy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Alembic
+alembic/versions/__pycache__/
+
+# Uploads
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
