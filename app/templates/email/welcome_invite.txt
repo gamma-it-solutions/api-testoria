@@ -1,0 +1,12 @@
+Hi {{ full_name or username }},
+
+An account has been created for you on Testoria. To finish setting up,
+choose a password by opening the link below:
+
+{{ link }}
+
+This link expires in 24 hours.
+
+If you did not expect this email you can safely ignore it.
+
+— Testoria

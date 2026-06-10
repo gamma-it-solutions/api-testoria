@@ -1,0 +1,103 @@
+TESTORIA BACKEND — HARD RULES FOR CODE GENERATION
+===================================================
+
+These rules override default behavior. Follow them exactly.
+
+---
+
+ARCHITECTURE RULES
+------------------
+
+1. ROUTERS ARE THIN.
+   Router functions do three things only: validate input (Pydantic), call one service method, return a schema.
+   No business logic, no DB queries, no conditional branches beyond a single 404 check in the router.
+
+2. SERVICES OWN THE LOGIC.
+   All business logic goes in app/services/<domain>_service.py.
+   Service methods are @staticmethod async def and accept AsyncSession as first argument.
+
+3. NEVER RETURN ORM MODELS FROM ROUTERS.
+   Always serialize via a Pydantic response_model. Never return a SQLAlchemy model object directly.
+
+4. ALL DB ACCESS IS ASYNC.
+   Every function that touches the DB is async def and uses await.
+   Never call synchronous SQLAlchemy from an async context.
+
+5. NEVER EDIT EXISTING MIGRATIONS.
+   Always create a new Alembic revision. Never modify alembic/versions/ files that already exist.
+
+6. CONFIG COMES FROM app/config.py ONLY.
+   No hardcoded secrets, URLs, or connection strings anywhere in the codebase.
+   All configuration is accessed via `from app.config import settings`.
+
+7. ALL PROTECTED ROUTES USE Depends(get_current_user).
+   No route bypasses authentication. Even admin-only routes use get_current_user + require_role().
+
+---
+
+PYTHON RULES
+------------
+
+8. PYTHON 3.11+.
+   Use match statements, union types (X | Y instead of Union[X, Y]), and built-in generics (list[X] instead of List[X]).
+
+9. TYPE EVERYTHING.
+   All function signatures have type annotations. mypy strict mode must pass.
+   No bare `dict`, `list`, or `Any` return types. Use Pydantic models or TypedDicts.
+
+10. PYDANTIC V2 SYNTAX.
+    Use model_dump() not .dict().
+    Use model_config = ConfigDict(from_attributes=True) not class Config.
+    Use @field_validator not @validator.
+
+11. ASYNC RELATIONSHIPS.
+    Use lazy="selectin" on all SQLAlchemy relationships, not lazy="dynamic" or lazy="select".
+    Alternatively, use explicit joinedload() in the query.
+
+12. FLUSH NOT COMMIT IN SERVICES.
+    Services call await db.flush() + await db.refresh(obj) after inserts.
+    Services do NOT call await db.commit() — the get_db dependency commits on request success.
+
+---
+
+TESTING RULES
+-------------
+
+13. EVERY NEW ENDPOINT HAS INTEGRATION TESTS.
+    Minimum: happy path (200), unauthenticated (401), not found (404 where applicable).
+    Role-protected endpoints also need a wrong-role test (403).
+
+14. EVERY NEW SERVICE METHOD HAS UNIT TESTS.
+    Use AsyncMock for DB session dependencies.
+    Tests go in tests/unit/test_<domain>_service.py.
+
+15. TEST DATABASE IS SEPARATE.
+    Integration tests use TEST_DATABASE_URL (testoria_test DB), never the dev DB.
+    Each test function rolls back via the db_session fixture — no cleanup needed.
+
+---
+
+DOCUMENTATION RULES
+--------------------
+
+16. UPDATE docs/06-generated/endpoints.md WHEN ADDING ENDPOINTS.
+    Every new endpoint row must be added. Path, method, min role, input, output.
+
+17. UPDATE docs/06-generated/db-schema.md WHEN CHANGING MODELS.
+    Every new column or table must be documented with type, constraints, and notes.
+
+18. MOVE PLANS TO completed/ WHEN DONE.
+    Once all Definition of Done items are checked, move the plan from active/ to completed/.
+
+---
+
+WHAT NOT TO DO
+--------------
+
+- Do not use synchronous SQLAlchemy (Session, not AsyncSession)
+- Do not put try/except around every DB operation — let exceptions propagate to the global handler
+- Do not return hashed_password in any response schema or log output
+- Do not use print() for debugging — use Python logging
+- Do not hardcode test credentials or secrets in test files — use pytest fixtures
+- Do not use lazy="dynamic" on relationships — incompatible with async sessions
+- Do not call db.commit() inside service methods (except for explicit transaction management)

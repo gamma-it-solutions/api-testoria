@@ -1,0 +1,200 @@
+TESTORIA BACKEND — PYTHON/FASTAPI CODING STANDARDS
+====================================================
+
+---
+
+FORMATTING
+----------
+
+- Line length: 88 (Black/ruff default)
+- Indentation: 4 spaces
+- Imports: sorted by ruff (stdlib → third-party → local), no wildcard imports
+- String quotes: double quotes preferred (ruff enforces)
+- Trailing commas: yes, in multi-line sequences
+
+---
+
+TYPE ANNOTATIONS
+----------------
+
+Use Python 3.11+ native syntax:
+
+  # Good
+  def get_user(user_id: int) -> User | None: ...
+  items: list[TestCase] = []
+  data: dict[str, Any] = {}
+
+  # Bad (old style)
+  from typing import Optional, List, Dict
+  def get_user(user_id: int) -> Optional[User]: ...
+
+All function parameters and return types annotated. No bare `Any` return types.
+
+---
+
+PYDANTIC SCHEMAS
+----------------
+
+Use Pydantic v2 patterns:
+
+  class TestCaseCreate(BaseModel):
+      suite_id: int
+      title: str
+      steps: list[TestStep] = []
+      priority: str = "Medium"
+      description: str | None = None
+
+  class TestCaseResponse(TestCaseCreate):
+      id: int
+      created_at: datetime
+      created_by: int
+
+      model_config = ConfigDict(from_attributes=True)
+
+- Use model_config = ConfigDict(from_attributes=True) on response schemas (replaces class Config)
+- Use model_dump(exclude_unset=True) for partial updates — only changed fields
+- Use @field_validator (not @validator) for custom validation
+
+---
+
+SQLALCHEMY MODELS
+-----------------
+
+  class TestCase(Base):
+      __tablename__ = "test_cases"
+
+      id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+      suite_id: Mapped[int] = mapped_column(Integer, ForeignKey("test_suites.id", ondelete="CASCADE"), index=True)
+      title: Mapped[str] = mapped_column(String(500), nullable=False)
+      description: Mapped[str | None] = mapped_column(Text)
+      steps: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+      created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+      # Relationships
+      suite: Mapped["TestSuite"] = relationship("TestSuite", back_populates="test_cases", lazy="selectin")
+
+Use SQLAlchemy 2.0 Mapped[] annotations for type safety. Use lazy="selectin" on all relationships.
+
+---
+
+FASTAPI ENDPOINTS
+-----------------
+
+  @router.get(
+      "/{project_id}/test-cases",
+      response_model=PaginatedResponse[TestCaseResponse],
+      summary="List test cases",
+  )
+  async def list_test_cases(
+      project_id: int,
+      suite_id: int | None = Query(None),
+      search: str | None = Query(None),
+      page: int = Query(1, ge=1),
+      page_size: int = Query(50, ge=1, le=100),
+      db: AsyncSession = Depends(get_db),
+      current_user: User = Depends(get_current_user),
+  ) -> PaginatedResponse[TestCaseResponse]:
+      items, total = await TestCaseService.list(db, project_id, suite_id=suite_id, search=search, page=page, page_size=page_size)
+      return paginate(items, total, page, page_size)
+
+- Declare response_model on all endpoints
+- Use Query() for query parameters with validation (ge, le, etc.)
+- Keep the function body to 3–5 lines max
+
+---
+
+SERVICE METHODS
+---------------
+
+  class TestCaseService:
+      """Service for test case business logic."""
+
+      @staticmethod
+      async def create(db: AsyncSession, data: TestCaseCreate, user_id: int) -> TestCase:
+          """Create a new test case.
+
+          Args:
+              db: Active database session.
+              data: Validated creation schema.
+              user_id: ID of the creating user.
+
+          Returns:
+              Created TestCase with generated id.
+          """
+          obj = TestCase(**data.model_dump(), created_by=user_id)
+          db.add(obj)
+          await db.flush()
+          await db.refresh(obj)
+          return obj
+
+- Google-style docstrings on all public service methods
+- @staticmethod for all methods (no instance state)
+- Return type annotated
+
+---
+
+ERROR HANDLING
+--------------
+
+  # In services — raise domain exceptions
+  if not project:
+      raise NotFoundError(f"Project {project_id} not found")
+
+  # In routers — only for one-off cases
+  raise HTTPException(status_code=404, detail="Not found")
+
+  # Database integrity
+  try:
+      await db.flush()
+  except IntegrityError:
+      raise ConflictError("Duplicate key")
+
+Do not wrap every statement in try/except. Let unexpected errors propagate to the global handler.
+
+---
+
+ASYNC PATTERNS
+--------------
+
+  # Query single
+  result = await db.execute(select(User).where(User.id == user_id))
+  user = result.scalar_one_or_none()
+
+  # Query all
+  result = await db.execute(select(Project))
+  projects = result.scalars().all()
+
+  # Insert
+  db.add(obj)
+  await db.flush()
+  await db.refresh(obj)
+
+  # External HTTP
+  async with httpx.AsyncClient(timeout=10.0) as client:
+      resp = await client.post(url, json=payload)
+      resp.raise_for_status()
+
+---
+
+NAMING CONVENTIONS
+------------------
+
+  # Files: snake_case
+  test_result_service.py, test_cases.py
+
+  # Classes: PascalCase
+  class TestResultService: ...
+  class TestCaseResponse(BaseModel): ...
+
+  # Functions/variables: snake_case
+  async def get_test_run(run_id: int) -> TestRun: ...
+  total_results = 0
+
+  # Constants: UPPER_SNAKE_CASE
+  MAX_PAGE_SIZE = 100
+
+  # DB table names: snake_case plural
+  __tablename__ = "test_results"
+
+  # Pydantic schemas: PascalCase with Create/Update/Response suffix
+  TestCaseCreate, TestCaseUpdate, TestCaseResponse

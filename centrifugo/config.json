@@ -1,0 +1,29 @@
+{
+  "token_hmac_secret_key": "${CENTRIFUGO_TOKEN_HMAC_SECRET_KEY}",
+  "api_key": "${CENTRIFUGO_API_KEY}",
+  "admin": false,
+  "allowed_origins": [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://testoria.gammait.net",
+    "https://api.testoria.gammait.net"
+  ],
+  "namespaces": [
+    {
+      "name": "project",
+      "presence": true,
+      "join_leave": false,
+      "history_size": 10,
+      "history_ttl": "120s"
+    },
+    {
+      "name": "testrun",
+      "presence": true,
+      "join_leave": false,
+      "history_size": 50,
+      "history_ttl": "300s"
+    }
+  ],
+  "engine": "redis",
+  "redis_address": "redis://redis:6379/1"
+}
