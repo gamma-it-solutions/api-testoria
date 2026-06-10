@@ -117,13 +117,13 @@ jobs:
             REDIS_URL=redis://redis:6379/0
             CELERY_BROKER_URL=redis://redis:6379/1
             CELERY_RESULT_BACKEND=redis://redis:6379/2
-            CORS_ORIGINS=["https://testoria.gammait.net","https://api.testoria.gammait.net"]
+            CORS_ORIGINS=["https://testoria-test.gammait.net","https://api.testoria-test.gammait.net"]
             UPLOAD_DIR=/data/uploads
             MINIO_ROOT_USER=testoria
             S3_ENDPOINT_URL=http://minio:9000
             S3_ACCESS_KEY=testoria
             S3_BUCKET_ATTACHMENTS=testoria-attachments
-            S3_PUBLIC_ENDPOINT_URL=https://s3.testoria.gammait.net
+            S3_PUBLIC_ENDPOINT_URL=https://s3.testoria-test.gammait.net
             DEFAULT_PAGE_SIZE=50
             MAX_PAGE_SIZE=100
             ADMIN_USERNAME=admin
@@ -134,7 +134,7 @@ jobs:
             EMAIL_SMTP_PORT=587
             EMAIL_SMTP_USER=gammaitmd@gmail.com
             EMAIL_FROM=Testoria <gammaitmd@gmail.com>
-            FRONTEND_BASE_URL=https://testoria.gammait.net
+            FRONTEND_BASE_URL=https://testoria-test.gammait.net
             DEBUG=false
             ENVEOF
             {
@@ -180,7 +180,7 @@ jobs:
 
             # Verify the public API responds through host nginx before finishing.
             curl --fail --retry 5 --retry-delay 3 --retry-all-errors \
-              https://api.testoria.gammait.net/api/v1/health
+              https://api.testoria-test.gammait.net/api/v1/health
 
             docker image prune -f
         env:
