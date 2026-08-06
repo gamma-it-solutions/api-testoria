@@ -27,6 +27,14 @@ Each repo's CI copies its own file(s) and runs `sudo nginx -t && sudo systemctl 
 sudo apt-get update
 sudo apt-get install -y nginx certbot python3-certbot-nginx rsync
 
+#    Docker + the Compose *v2 plugin*. CD calls `docker compose` (subcommand,
+#    not the legacy `docker-compose` binary) — without the plugin every compose
+#    step fails with `unknown flag: --env-file` against the root docker usage.
+#    On the Ubuntu-packaged Docker the plugin is `docker-compose-v2` instead.
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo usermod -aG docker "$USER"   # log out/in for this to take effect
+docker compose version            # must print v2.x before running CD
+
 # 2. SPA web root
 sudo mkdir -p /var/www/testoria/releases /var/www/certbot
 sudo chown -R "$USER":www-data /var/www/testoria

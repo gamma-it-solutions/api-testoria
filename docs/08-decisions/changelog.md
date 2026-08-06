@@ -19,6 +19,10 @@ For formal ADRs, see `docs/02-architecture/decisions/`.
 - Added `set -euo pipefail` to the deploy script and moved every secret guard to
   the top, ahead of the clone and the registry login.
 - Added `-T` to the in-container `docker compose exec` health check.
+- Added a `docker compose version` preflight to the same guard block, and added
+  Docker + the Compose **v2 plugin** to the one-time host setup in
+  `deploy/README.md` — it previously listed only nginx/certbot/rsync and silently
+  assumed Docker was there.
 
 ### Why
 `2c73fc5` changed only the `.env.prod` values, not `deploy/api.vhost.conf` — which
@@ -55,6 +59,10 @@ on whatever stale image was already on the host.
   credentials. Accepted — manual pulls on the host are not part of any routine.
 - The `permissions:` block is required, not decorative: with a restricted org
   default the token would carry no `packages` scope and the pull would 401.
+- **Host prerequisites get guards too, not just secrets.** A missing Compose v2
+  plugin surfaces as `unknown flag: --env-file` against the *root* docker usage,
+  which reads like a bug in the deploy script rather than a missing package. Any
+  future host assumption in this step should be asserted the same way.
 - **No apostrophes in `${VAR:?word}` guard messages.** The word is
   quote-processed, so a lone `'` (as in `the job's permissions`) opens a quote
   that swallows the rest of the file and makes the whole script a syntax error.

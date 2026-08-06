@@ -104,6 +104,16 @@ jobs:
             : "${S3_SECRET_KEY:?missing GitHub secret S3_SECRET_KEY}"
             : "${EMAIL_SMTP_PASSWORD:?missing GitHub secret EMAIL_SMTP_PASSWORD}"
 
+            # Same idea for host prerequisites. Without the Compose v2 plugin,
+            # `docker compose --env-file …` fails as an unknown *root* docker
+            # flag, which reads like a syntax error in this script rather than a
+            # missing package. Install: apt-get install -y docker-compose-plugin
+            # (docker-compose-v2 on the Ubuntu-packaged Docker).
+            docker compose version >/dev/null 2>&1 || {
+              echo "docker compose v2 plugin not installed on this host" >&2
+              exit 1
+            }
+
             git config --global credential.helper store
             printf "https://x-access-token:%s@github.com\n" "$GH_TOKEN" > ~/.git-credentials
             chmod 600 ~/.git-credentials
