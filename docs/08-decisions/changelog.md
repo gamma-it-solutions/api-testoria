@@ -5,15 +5,19 @@ For formal ADRs, see `docs/02-architecture/decisions/`.
 
 ---
 
-## 2026-08-06 — CD: revert to production domains, pin the GHCR login user
+## 2026-08-06 — CD: production domains restored, GH_PAT dropped for GITHUB_TOKEN
 
 ### What
 - Reverted the four `testoria-test.gammait.net` values introduced in `2c73fc5`
   back to the production domains in `cd.yml`: `CORS_ORIGINS`,
   `S3_PUBLIC_ENDPOINT_URL`, `FRONTEND_BASE_URL`, and the post-deploy health-check
   URL.
-- `GHCR_USER` is now `${{ secrets.GHCR_USER || github.actor }}` instead of
-  `${{ github.actor }}`.
+- **Removed `GH_PAT` entirely.** The host-side `git clone`/`pull` and the GHCR
+  login both use the automatic `GITHUB_TOKEN` (passed as `GH_TOKEN`), with an
+  explicit `permissions: {contents: read, packages: read}` on the deploy job.
+  `GHCR_USER` is back to plain `${{ github.actor }}`.
+- Added `set -euo pipefail` to the deploy script and moved every secret guard to
+  the top, ahead of the clone and the registry login.
 - Added `-T` to the in-container `docker compose exec` health check.
 
 ### Why
@@ -25,9 +29,18 @@ one deploy disagreed: the final `curl` hit a hostname with no vhost and no cert
 URLs pointed at an unserved `s3.*` host, and `CORS_ORIGINS` excluded the real
 frontend while `centrifugo/config.json` still allowed only the production origins.
 
-The GHCR login pairs `GH_PAT` with `GHCR_USER`, and a PAT only ever authenticates
-as its own owner — `github.actor` works until someone other than the PAT owner
-merges to main, then the image pull fails on the host.
+The GHCR login paired `GH_PAT` with `GHCR_USER`, and a PAT only ever
+authenticates as its own owner — `github.actor` works until someone other than
+the PAT owner merges to main. In practice `GH_PAT` also resolved to an empty
+string in the deploy job (never diagnosed further, since the token switch removed
+the dependency), which surfaced as docker's misleading `cannot perform an
+interactive login from a non TTY device` — that message means the password
+arriving on stdin was empty, not that a TTY was wanted.
+
+Without `set -e`, that failed login and the failed `docker pull` after it did not
+stop the run: the script carried on for another 40 lines and only died at a
+secret guard. Had that guard passed, `compose up` would have restarted the stack
+on whatever stale image was already on the host.
 
 ### Decisions / trade-offs
 - **Reverted rather than parametrised.** A real staging environment needs the
@@ -35,13 +48,18 @@ merges to main, then the image pull fails on the host.
   `centrifugo/config.json` together (GitHub `vars.*` + an envsubst step on the
   vhost), plus its own DNS and certs. Out of scope here; if staging comes back,
   do it as a plan rather than by editing the four env lines again.
-- **`||` fallback on `GHCR_USER`** keeps the workflow working before the secret
-  is added. Set `GHCR_USER` to the `GH_PAT` owner's login to make it
-  deterministic.
-- `GHCR_TOKEN` (the automatic `GITHUB_TOKEN`) is still exported at cd.yml:188 and
-  still unused — the login uses `GH_PAT`. Switching to `GITHUB_TOKEN` with a
-  `packages: read` permission on the deploy job would drop the PAT/username
-  coupling entirely; left alone as a separate change.
+- **`GITHUB_TOKEN` over a PAT.** No secret to create, scope, or rotate, and the
+  username stops mattering (GHCR ignores it when the password is a
+  `GITHUB_TOKEN`). Cost: the token dies with the job, so a human on the EC2 box
+  cannot `docker pull` by hand without `docker login ghcr.io` under their own
+  credentials. Accepted — manual pulls on the host are not part of any routine.
+- The `permissions:` block is required, not decorative: with a restricted org
+  default the token would carry no `packages` scope and the pull would 401.
+- **No apostrophes in `${VAR:?word}` guard messages.** The word is
+  quote-processed, so a lone `'` (as in `the job's permissions`) opens a quote
+  that swallows the rest of the file and makes the whole script a syntax error.
+  Caught by extracting the script from the YAML and running `bash -n` over it —
+  worth repeating after any edit to this step.
 
 ---
 

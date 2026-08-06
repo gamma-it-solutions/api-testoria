@@ -62,6 +62,13 @@ jobs:
     needs: build-and-push
     environment: production
 
+    # GITHUB_TOKEN scopes for the host-side work: `contents` to clone/pull this
+    # repo, `packages` to pull the image from GHCR. Declared explicitly because
+    # the org default may be restricted.
+    permissions:
+      contents: read
+      packages: read
+
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -73,7 +80,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GH_PAT,GHCR_TOKEN,GHCR_USER,REGISTRY,IMAGE_NAME,POSTGRES_PASSWORD,DATABASE_URL,SECRET_KEY,CENTRIFUGO_API_KEY,CENTRIFUGO_TOKEN_SECRET,ADMIN_PASSWORD,S3_SECRET_KEY,EMAIL_SMTP_PASSWORD
+          envs: GH_TOKEN,GHCR_USER,REGISTRY,IMAGE_NAME,POSTGRES_PASSWORD,DATABASE_URL,SECRET_KEY,CENTRIFUGO_API_KEY,CENTRIFUGO_TOKEN_SECRET,ADMIN_PASSWORD,S3_SECRET_KEY,EMAIL_SMTP_PASSWORD
           script: |
             # Without this the script runs on regardless of failures — a failed
             # `docker login`/`docker pull` used to fall through to `compose up`
@@ -81,11 +88,13 @@ jobs:
             set -euo pipefail
 
             # Fail fast, before the host is touched at all, if any secret is
-            # missing or empty. An absent GH_PAT otherwise surfaces only as
+            # missing or empty. An empty token otherwise surfaces only as
             # docker's opaque "cannot perform an interactive login from a non
             # TTY device" — that message means the password on stdin was empty.
-            : "${GH_PAT:?missing GitHub secret GH_PAT}"
-            : "${GHCR_USER:?missing GHCR_USER (secret, or github.actor fallback)}"
+            # No apostrophes in these messages: the word in ${VAR:?word} is
+            # quote-processed, so a lone ' makes the whole script a syntax error.
+            : "${GH_TOKEN:?missing GITHUB_TOKEN — check the deploy job permissions block}"
+            : "${GHCR_USER:?missing GHCR_USER}"
             : "${POSTGRES_PASSWORD:?missing GitHub secret POSTGRES_PASSWORD}"
             : "${DATABASE_URL:?missing GitHub secret DATABASE_URL}"
             : "${SECRET_KEY:?missing GitHub secret SECRET_KEY}"
@@ -96,7 +105,7 @@ jobs:
             : "${EMAIL_SMTP_PASSWORD:?missing GitHub secret EMAIL_SMTP_PASSWORD}"
 
             git config --global credential.helper store
-            printf "https://x-access-token:%s@github.com\n" "$GH_PAT" > ~/.git-credentials
+            printf "https://x-access-token:%s@github.com\n" "$GH_TOKEN" > ~/.git-credentials
             chmod 600 ~/.git-credentials
 
             if [ -d ~/api-testoria/.git ]; then
@@ -108,7 +117,7 @@ jobs:
             rm -f ~/.git-credentials
             git config --global --unset credential.helper || true
 
-            echo "$GH_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
@@ -194,12 +203,14 @@ jobs:
 
             docker image prune -f
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Must be the owner of GH_PAT — a PAT only authenticates as its own
-          # user, so `github.actor` (whoever merged to main) breaks the GHCR
-          # login for anyone else. Falls back to the actor if the secret is unset.
-          GHCR_USER: ${{ secrets.GHCR_USER || github.actor }}
+          # Automatic per-run token — no PAT to create, scope, or rotate. Used on
+          # the host for both the git clone/pull and the GHCR login. It expires
+          # when this job ends, so a human on the box who wants to `docker pull`
+          # by hand has to `docker login ghcr.io` with their own credentials.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GHCR ignores the username when the password is a GITHUB_TOKEN, so any
+          # non-empty value works — unlike a PAT, which must match its owner.
+          GHCR_USER: ${{ github.actor }}
           REGISTRY: ${{ env.REGISTRY }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
