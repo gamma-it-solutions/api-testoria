@@ -5,6 +5,46 @@ For formal ADRs, see `docs/02-architecture/decisions/`.
 
 ---
 
+## 2026-08-06 — CD: revert to production domains, pin the GHCR login user
+
+### What
+- Reverted the four `testoria-test.gammait.net` values introduced in `2c73fc5`
+  back to the production domains in `cd.yml`: `CORS_ORIGINS`,
+  `S3_PUBLIC_ENDPOINT_URL`, `FRONTEND_BASE_URL`, and the post-deploy health-check
+  URL.
+- `GHCR_USER` is now `${{ secrets.GHCR_USER || github.actor }}` instead of
+  `${{ github.actor }}`.
+- Added `-T` to the in-container `docker compose exec` health check.
+
+### Why
+`2c73fc5` changed only the `.env.prod` values, not `deploy/api.vhost.conf` — which
+the same deploy script installs and which serves `api.testoria.gammait.net` /
+`s3.testoria.gammait.net` under a cert issued for those names. The two halves of
+one deploy disagreed: the final `curl` hit a hostname with no vhost and no cert
+(so every deploy ended red *after* mutating the live stack), presigned attachment
+URLs pointed at an unserved `s3.*` host, and `CORS_ORIGINS` excluded the real
+frontend while `centrifugo/config.json` still allowed only the production origins.
+
+The GHCR login pairs `GH_PAT` with `GHCR_USER`, and a PAT only ever authenticates
+as its own owner — `github.actor` works until someone other than the PAT owner
+merges to main, then the image pull fails on the host.
+
+### Decisions / trade-offs
+- **Reverted rather than parametrised.** A real staging environment needs the
+  domains templated across `cd.yml`, `deploy/api.vhost.conf`, and
+  `centrifugo/config.json` together (GitHub `vars.*` + an envsubst step on the
+  vhost), plus its own DNS and certs. Out of scope here; if staging comes back,
+  do it as a plan rather than by editing the four env lines again.
+- **`||` fallback on `GHCR_USER`** keeps the workflow working before the secret
+  is added. Set `GHCR_USER` to the `GH_PAT` owner's login to make it
+  deterministic.
+- `GHCR_TOKEN` (the automatic `GITHUB_TOKEN`) is still exported at cd.yml:188 and
+  still unused — the login uses `GH_PAT`. Switching to `GITHUB_TOKEN` with a
+  `packages: read` permission on the deploy job would drop the PAT/username
+  coupling entirely; left alone as a separate change.
+
+---
+
 ## 2026-06-03 — Plan 049: Invite-only user creation, opened to Lead + Admin
 
 ### What
