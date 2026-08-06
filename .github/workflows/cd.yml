@@ -75,6 +75,26 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: GH_PAT,GHCR_TOKEN,GHCR_USER,REGISTRY,IMAGE_NAME,POSTGRES_PASSWORD,DATABASE_URL,SECRET_KEY,CENTRIFUGO_API_KEY,CENTRIFUGO_TOKEN_SECRET,ADMIN_PASSWORD,S3_SECRET_KEY,EMAIL_SMTP_PASSWORD
           script: |
+            # Without this the script runs on regardless of failures — a failed
+            # `docker login`/`docker pull` used to fall through to `compose up`
+            # and restart the stack on a stale image.
+            set -euo pipefail
+
+            # Fail fast, before the host is touched at all, if any secret is
+            # missing or empty. An absent GH_PAT otherwise surfaces only as
+            # docker's opaque "cannot perform an interactive login from a non
+            # TTY device" — that message means the password on stdin was empty.
+            : "${GH_PAT:?missing GitHub secret GH_PAT}"
+            : "${GHCR_USER:?missing GHCR_USER (secret, or github.actor fallback)}"
+            : "${POSTGRES_PASSWORD:?missing GitHub secret POSTGRES_PASSWORD}"
+            : "${DATABASE_URL:?missing GitHub secret DATABASE_URL}"
+            : "${SECRET_KEY:?missing GitHub secret SECRET_KEY}"
+            : "${CENTRIFUGO_API_KEY:?missing GitHub secret CENTRIFUGO_API_KEY}"
+            : "${CENTRIFUGO_TOKEN_SECRET:?missing GitHub secret CENTRIFUGO_TOKEN_SECRET}"
+            : "${ADMIN_PASSWORD:?missing GitHub secret ADMIN_PASSWORD}"
+            : "${S3_SECRET_KEY:?missing GitHub secret S3_SECRET_KEY}"
+            : "${EMAIL_SMTP_PASSWORD:?missing GitHub secret EMAIL_SMTP_PASSWORD}"
+
             git config --global credential.helper store
             printf "https://x-access-token:%s@github.com\n" "$GH_PAT" > ~/.git-credentials
             chmod 600 ~/.git-credentials
@@ -95,18 +115,8 @@ jobs:
             cd ~/api-testoria
 
             # Write .env.prod: non-secret config inline, secret values appended
-            # from GitHub secrets. Aborts the deploy (before any compose command)
-            # if a secret is missing, so the running stack is never touched with a
-            # broken env.
-            : "${POSTGRES_PASSWORD:?missing GitHub secret POSTGRES_PASSWORD}"
-            : "${DATABASE_URL:?missing GitHub secret DATABASE_URL}"
-            : "${SECRET_KEY:?missing GitHub secret SECRET_KEY}"
-            : "${CENTRIFUGO_API_KEY:?missing GitHub secret CENTRIFUGO_API_KEY}"
-            : "${CENTRIFUGO_TOKEN_SECRET:?missing GitHub secret CENTRIFUGO_TOKEN_SECRET}"
-            : "${ADMIN_PASSWORD:?missing GitHub secret ADMIN_PASSWORD}"
-            : "${S3_SECRET_KEY:?missing GitHub secret S3_SECRET_KEY}"
-            : "${EMAIL_SMTP_PASSWORD:?missing GitHub secret EMAIL_SMTP_PASSWORD}"
-
+            # from GitHub secrets. All of them were checked at the top of this
+            # script, so the running stack is never touched with a broken env.
             umask 077
             cat > .env.prod <<'ENVEOF'
             # Testoria API — Production. Generated at deploy by cd.yml. Non-secret config.
