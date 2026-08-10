@@ -1,22 +1,24 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.exceptions import ForbiddenError
 from app.core.roles import UserRole
 from app.core.uploads import validate_image_upload, validate_upload_size
 from app.database import get_db
-from app.dependencies import require_role
+from app.dependencies import Principal, get_principal, require_role
 from app.models.user import User
 from app.schemas.test_result import (
     BulkUploadFailure,
     ResultAttachmentBulkResponse,
     ResultAttachmentResponse,
+    ResultImportReport,
     TestResultCreate,
     TestResultHistoryResponse,
     TestResultResponse,
     TestResultUpdate,
 )
-from app.services import test_result_service
+from app.services import result_import_service, test_result_service, test_run_service
 
 router = APIRouter(tags=["test-results"])
 
@@ -53,6 +55,49 @@ async def submit_result(
 ) -> TestResultResponse:
     tr = await test_result_service.submit(db, run_id, data, current_user.id)
     return TestResultResponse.model_validate(tr)
+
+
+@router.post(
+    "/test-runs/{run_id}/results/import",
+    response_model=ResultImportReport,
+    summary="Import results from a JUnit XML or JSON report",
+)
+async def import_results(
+    run_id: int,
+    file: UploadFile = File(...),
+    format: str = Form(default="auto"),
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(get_principal),
+) -> ResultImportReport:
+    if principal.role not in _TESTER:
+        raise ForbiddenError()
+    await _assert_run_in_key_scope(db, run_id, principal)
+    content = await validate_upload_size(file)
+    return await result_import_service.import_results(
+        db,
+        run_id,
+        content,
+        principal.user.id,
+        filename=file.filename,
+        fmt=format,
+    )
+
+
+async def _assert_run_in_key_scope(
+    db: AsyncSession, run_id: int, principal: Principal
+) -> None:
+    """A project-scoped API key may only write to runs in that project.
+
+    Scope is a write guard on the CLI-facing routes, not a general read ACL —
+    see `docs/02-architecture/backend/auth.md`.
+    """
+    if principal.project_id is None:
+        return
+    run = await test_run_service.get_run(db, run_id)
+    if run.project_id != principal.project_id:
+        raise ForbiddenError(
+            f"This API key is scoped to project {principal.project_id}"
+        )
 
 
 @router.get("/test-results/{result_id}", response_model=TestResultResponse)

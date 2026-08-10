@@ -6,6 +6,22 @@ Known issues and deferred improvements. Add items when debt is incurred, remove 
 
 ## Active items
 
+### API key project scope is a write guard, not a read ACL (plan-050)
+**Impact:** A key minted with `project_id` is enforced on `POST /test-runs/{id}/results/import`, but `project_id` is not in the path on most endpoints, so a scoped key can still **read** other projects at its effective role (`tester`). Users may reasonably read "scoped to project 7" as stronger than it is.
+**Fix:** Either thread the scope through a shared guard on every project-derived route (needs a resolver from run/suite/case → project on each), or resolve scope once in `get_principal` and filter list queries centrally. Until then the limit is documented in `docs/02-architecture/backend/auth.md`.
+
+### `test_results.execution_time` is integer seconds, so sub-second tests round to 0 (plan-050)
+**Impact:** JUnit reports `time` as float seconds. Plan 050 changed truncation to rounding (`int(0.6)` → 0 became `round(0.6)` → 1), but a 120 ms unit test still stores 0. For fast automated suites the column is close to meaningless, and per-test duration trends cannot be built from it.
+**Fix:** Migrate `execution_time` to milliseconds (or `Numeric`), backfill `value * 1000`, and update the web display plus `TestResultCreate`/`Update`. Cross-repo: web-testoria renders it.
+
+### Web does not consume the `test_result_bulk` realtime event (plan-050)
+**Impact:** `submit_many` publishes **one** aggregate `test_result_bulk` event instead of N per-result `test_result` events — deliberate, because a 2000-case CI import must not fire 2000 publishes. The web client only subscribes to `test_result`, so a run being filled by a CI import does not update live until reload.
+**Fix:** Subscribe to `test_result_bulk` in web-testoria and refetch the run's results on receipt. Additive — per-result events still fire for UI-driven submits.
+
+### Retire `POST /ci/results/bulk` in favour of `/test-runs/{id}/results/import` (plan-050)
+**Impact:** Two import paths now exist. The old one matches by title only, returns counts with no detail, issues one `SELECT` per `<testcase>`, and calls the full per-result `submit()` (≈6 queries + a Centrifugo publish each). It is kept because feature 009 documents it publicly.
+**Fix:** Once logs show no inbound traffic for ≥ 2 weeks, delete the route, `ci_service.import_junit_xml`, and its tests; update feature 009 and `endpoints.md`.
+
 ### No rate limiting on `forgot-password` (plan-048)
 **Impact:** `POST /auth/forgot-password` is public and always returns `202`. Without throttling it can be abused to spam a victim's inbox (one queued email per request) or to probe timing. It does not enumerate users (constant response), but it is unbounded.
 **Fix:** Add per-IP + per-email rate limiting (e.g. Redis token bucket) before heavy public use, and consider a captcha. The Redis client (`app/core/redis.py`) is already available.
@@ -76,10 +92,6 @@ Known issues and deferred improvements. Add items when debt is incurred, remove 
 **Impact:** Legacy runs (created before plan 025) use the fallback `suite_id` scoping path. If the fallback code is ever removed, those runs would appear to have zero cases.
 **Fix:** One-shot SQL: `INSERT INTO test_run_test_cases SELECT tr.id, tc.id FROM test_runs tr JOIN test_cases tc ON tc.suite_id = tr.suite_id WHERE tr.suite_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM test_run_test_cases WHERE test_run_id = tr.id)`. Run once, then the fallback path can be removed.
 
-### Auto-link CI runs to test cases via `automation_id`
-**Impact:** The `automation_id` field enables manual lookup, but CI bulk import (`POST /ci/results/bulk`) still matches by title, not by `automation_id`. This means automated test results from CI may not link to the correct test case if titles diverge from automation ids.
-**Fix:** Extend `ci_service` JUnit XML import to prefer `automation_id` matching over title matching. Fall back to title if no `automation_id` match.
-
 ### Project-scoped tags
 **Impact:** Tags are currently global. If multiple projects use the same tag names with different meanings, there is no way to distinguish them.
 **Fix:** Add `project_id` FK to `tags` table, update unique constraint to `(project_id, name)`, and update `tag_service` + tag resolution in `test_case_service`. Breaking change — requires migration and frontend updates.
@@ -147,6 +159,9 @@ Known issues and deferred improvements. Add items when debt is incurred, remove 
 ---
 
 ## Resolved
+
+### Auto-link CI runs to test cases via `automation_id` (resolved 2026-08-10 — plan 050)
+`POST /test-runs/{run_id}/results/import` matches on `automation_id` before falling back to `title`, and reports which rule matched via `matched_by`. The load-bearing addition is the `dotted()` rule: pytest's JUnit output carries no node ID (`junit_family=xunit2` emits neither `file` nor `line`), so a stored node ID like `tests/a/test_a.py::TestA::test_x` is normalised to `tests.a.test_a.TestA.test_x` before comparing with `classname.name`. Verified end-to-end against real pytest 8.3.5 output. The legacy `POST /ci/results/bulk` is unchanged — its retirement is tracked above.
 
 ### Dockerized edge proxy coupling: shared `testoria-proxy` network + `resolver` startup hack (resolved 2026-06-01)
 Plan 047 moved the edge to host-level nginx. The cross-repo `testoria-proxy` docker network (created by the frontend repo, joined here as `external`) and the `resolver 127.0.0.11 valid=10s` hack that worked around containers vanishing at nginx start are both gone. This stack now runs entirely on the private `internal` network and `api` comes up without any dependency on the web repo's deploy order.

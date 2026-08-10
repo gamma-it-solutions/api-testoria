@@ -79,6 +79,7 @@ async def list_test_cases(
     status: Literal["draft", "active", "deprecated"] | None = Query(default=None),
     tag_ids: list[int] | None = Query(default=None),
     automation_id: str | None = Query(default=None),
+    has_automation_id: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     include_deleted: bool = Query(default=False),
@@ -93,6 +94,7 @@ async def list_test_cases(
         status=status,
         tag_ids=tag_ids,
         automation_id=automation_id,
+        has_automation_id=has_automation_id,
         page=page,
         page_size=page_size,
     )

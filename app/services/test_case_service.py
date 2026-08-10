@@ -91,6 +91,12 @@ def _build_list_query(
         )
     if filters.automation_id is not None:
         query = query.where(TestCase.automation_id == filters.automation_id)
+    if filters.has_automation_id is not None:
+        query = query.where(
+            TestCase.automation_id.is_not(None)
+            if filters.has_automation_id
+            else TestCase.automation_id.is_(None)
+        )
 
     return query
 

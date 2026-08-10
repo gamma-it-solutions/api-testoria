@@ -262,6 +262,38 @@ and retries with backoff. Migration `a1c2e3f40576`.
 
 ---
 
+### `api_keys`
+
+Non-interactive credentials for CI pipelines and the CLI (plan 050). Migration
+`c3d4e5f60789`. Deliberately **not** a soft-delete table: `revoked_at` is this
+table's soft delete and carries clearer meaning. Revoked rows are never purged —
+they are the record of which credential did what.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| id | SERIAL | PK, INDEX | |
+| name | VARCHAR(100) | NOT NULL | Human label, e.g. `github-actions-nightly` |
+| key_prefix | VARCHAR(16) | NOT NULL, UNIQUE, INDEX | Lookup handle; safe to display |
+| key_hash | VARCHAR(64) | NOT NULL | SHA-256 hex of the secret half — see note below |
+| user_id | INTEGER | FK → users.id ON DELETE RESTRICT, NOT NULL, INDEX | Owning principal |
+| project_id | INTEGER | FK → projects.id ON DELETE CASCADE, NULL, INDEX | NULL = unscoped |
+| role | VARCHAR(50) | NOT NULL, DEFAULT `'tester'` | Capped at `API_KEY_MAX_ROLE` and at the owner's role |
+| expires_at | TIMESTAMPTZ | NULL | NULL = never expires (must be opted into) |
+| last_used_at | TIMESTAMPTZ | NULL | Throttled write; operator convenience, not an audit record |
+| revoked_at | TIMESTAMPTZ | NULL, INDEX | Set on revoke; the row is kept |
+| created_at | TIMESTAMPTZ | DEFAULT NOW(), NOT NULL | |
+| updated_at | TIMESTAMPTZ | DEFAULT NOW(), ON UPDATE NOW(), NOT NULL | |
+
+**SHA-256, not bcrypt.** The secret is 256 bits of `secrets.token_urlsafe`
+output — there is no dictionary for a slow KDF to defend against, and bcrypt's
+~100 ms would be paid on every request an unattended pipeline makes. Lookup is a
+single indexed hit on `key_prefix` followed by `secrets.compare_digest`.
+
+The **effective role** of a request is `min(role, owner.role, API_KEY_MAX_ROLE)`,
+recomputed per request — demoting a user immediately degrades every key they own.
+
+---
+
 ## Relationships summary
 
 ```
@@ -298,6 +330,10 @@ Milestone → TestRun[]
 | `idx_test_results_run_id` | test_results | test_run_id | List results by run |
 | `idx_test_results_case_id` | test_results | test_case_id | Look up result by case |
 | `idx_result_history_result_id` | result_history | test_result_id | History by result |
+| `ix_api_keys_key_prefix` | api_keys | key_prefix (UNIQUE) | The whole lookup on the API-key auth hot path |
+| `ix_api_keys_user_id` | api_keys | user_id | List a user's keys |
+| `ix_api_keys_project_id` | api_keys | project_id | Scope checks |
+| `ix_api_keys_revoked_at` | api_keys | revoked_at | Filter live keys |
 | `idx_audit_logs_user_id` | audit_logs | user_id | Audit trail by user |
 | `idx_audit_logs_created_at` | audit_logs | created_at | Time-range queries |
 | `ix_projects_deleted_at` | projects | deleted_at | Soft-delete filter |

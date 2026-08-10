@@ -19,13 +19,44 @@
 |--------|------|------|-------|--------|
 | POST | `/auth/login` | None | `form: username, password` | `Token` |
 | POST | `/auth/refresh` | None | `body: refresh_token` | `Token` |
-| GET | `/auth/me` | Bearer | — | `UserResponse` |
+| GET | `/auth/me` | Bearer or API key | — | `UserResponse` |
+| GET | `/auth/principal` | Bearer or API key | — | `PrincipalResponse` |
 | POST | `/auth/logout` | Bearer | — | `{"message": "..."}` |
 | POST | `/auth/forgot-password` | None | `body: email` | `{"message": "..."}` 202 |
 | POST | `/auth/reset-password` | None | `body: token, new_password` | `{"message": "..."}` |
 | GET | `/auth/reset-password/validate` | None | `query: token` | `{valid, username}` |
 
 **Token** = `{ access_token, refresh_token, token_type: "bearer" }`
+
+**PrincipalResponse** = `{ user_id, username, account_role, effective_role, project_id, via }`.
+`/auth/me` answers "which account is this" and returns the account's own role;
+`/auth/principal` answers "what may this credential do" — for an API key the
+`effective_role` is capped below `account_role`. See
+`docs/02-architecture/backend/auth.md`.
+
+---
+
+## API Keys (`app/api/v1/api_keys.py`)
+
+| Method | Path | Auth | Input | Output |
+|--------|------|------|-------|--------|
+| POST | `/api-keys` | **Bearer only** (tester+) | `ApiKeyCreate` | `ApiKeyCreateResponse` 201 |
+| GET | `/api-keys` | **Bearer only** (tester+) | `query: user_id?, include_revoked?` | `list[ApiKeyResponse]` |
+| DELETE | `/api-keys/{key_id}` | **Bearer only** (owner or admin) | — | 204 |
+
+**Bearer only**: these three routes reject API-key principals with 403 (`require_jwt`).
+An API key that could mint or revoke keys would turn a leak from a revocable
+credential into a persistent foothold.
+
+**ApiKeyCreate** = `{ name, project_id?, role=tester, expires_in_days?, never_expires=false, user_id? }`.
+`user_id` (mint for someone else) requires lead/admin. Role is capped at
+`API_KEY_MAX_ROLE` (default `tester`) **and** at the owner's own role.
+
+**ApiKeyCreateResponse** = `ApiKeyResponse` + `key` — the plaintext, returned
+once and never retrievable again. `ApiKeyResponse` carries `key_prefix` only.
+
+Requests authenticate with `X-API-Key: tsk_<prefix>_<secret>`. Sending both an
+`Authorization` header and `X-API-Key` is a 400 — the server never guesses.
 
 There is **no public self-registration** (the former `POST /auth/register` was removed in plan 049). Accounts are created only by a Lead or Admin via `POST /users` / `POST /users/bulk`, and are always invite-only (see Users below).
 
@@ -119,7 +150,7 @@ Returns flat list with `parent_suite_id` — client builds the tree. Sort order 
 | POST | `/projects/{project_id}/test-cases/import` | lead | `multipart: file (CSV/Excel)` | `ImportResult` |
 | GET | `/projects/{project_id}/test-cases/export` | read_only | `format: csv\|excel` | file download |
 
-**TestCaseFilters**: `suite_id?`, `priority?`, `type?`, `status?`, `search?`, `tag_ids?` (repeated), `automation_id?` (exact match), `page?`, `page_size?`
+**TestCaseFilters**: `suite_id?`, `priority?`, `type?`, `status?`, `search?`, `tag_ids?` (repeated), `automation_id?` (exact match), `has_automation_id?` (bool), `page?`, `page_size?`
 `tag_ids` accepts repeated query params (e.g. `?tag_ids=1&tag_ids=2`). OR semantics — returns test cases that have *any* of the given tags.
 **priority**: `low` \| `medium` \| `high` \| `critical`
 
@@ -128,7 +159,7 @@ Sort order on the list endpoint is `(display_order NULLS LAST, created_at ASC, i
 **status**: `draft` \| `active` \| `deprecated`
 **ImportResult** = `{ created: int, errors: [{ row: int, detail: str }] }`
 
-`automation_id` is an optional string field on create/update/response. Empty strings are coerced to `null`. Filter by exact match via `?automation_id=...`.
+`automation_id` is an optional string field on create/update/response. Empty strings are coerced to `null`. Filter by exact match via `?automation_id=...`, or by presence via `?has_automation_id=false` — which lists the cases no automated run can link to (what `testoria case list --unmapped` calls). Omitting the param is unchanged.
 
 CSV/Excel import columns: `title, description, preconditions, steps_json, priority, type, status, suite_id, tags`
 
@@ -198,6 +229,7 @@ With `?group_by=suite` the same endpoint returns `TestRunSuiteTree` = `{ run, ro
 |--------|------|----------|-------|--------|
 | GET | `/test-runs/{run_id}/results` | read_only | `include_orphans?: bool` | `TestResultResponse[]` |
 | POST | `/test-runs/{run_id}/results` | tester | `TestResultCreate` | `TestResultResponse` 201 (upsert) |
+| POST | `/test-runs/{run_id}/results/import` | tester | `multipart: file` + `form: format=auto\|junit\|json` | `ResultImportReport` |
 | GET | `/test-results/{id}` | read_only | — | `TestResultResponse` |
 | PUT | `/test-results/{id}` | tester | `TestResultUpdate` | `TestResultResponse` |
 | GET | `/test-results/{id}/history` | read_only | — | `TestResultHistoryResponse[]` |
@@ -205,6 +237,34 @@ With `?group_by=suite` the same endpoint returns `TestRunSuiteTree` = `{ run, ro
 | POST | `/test-results/{id}/attachments/bulk` | tester | `multipart: files[]` (image/* whitelist, 10 max, 10MB each) | `ResultAttachmentBulkResponse` 201 |
 | DELETE | `/test-results/{id}/attachments/{attach_id}` | tester | — | 204 |
 | GET | `/files/legacy/{attachment_id}` | read_only | — | Streams the file for `storage_backend='local'` rows; 410 Gone otherwise. Removed after every row migrates to `'s3'`. |
+
+**Import** (`/test-runs/{run_id}/results/import`): accepts JUnit XML or a JSON list.
+Accepts an API key as well as a Bearer token; a project-scoped key may only write
+to runs in its project (403 otherwise). Always returns **200 with a report** — an
+unmatched test is information, not an error. `--strict` is a client policy.
+
+**ResultImportReport** = `{ run_id, total, matched, submitted, unmatched, unmatched_cases[], matched_by{}, status_counts{} }`.
+`unmatched_cases` is capped at 100 entries; `unmatched` keeps the true count.
+Each entry is `{ identifier, classname, name, status, reason }` where `reason` is
+`no_match` \| `ambiguous` \| `out_of_scope`.
+
+**Match order** — `matched_by` reports which rule hit, so a suite matching on the
+fragile `title` rules instead of `automation_id` is visible:
+
+| # | Rule key | Matches `classname.name` against |
+|---|----------|----------------------------------|
+| 1 | `automation_id` | `TestCase.automation_id` |
+| 2 | `automation_id_dotted` | `dotted(automation_id)` — **pytest node IDs** |
+| 3 | `automation_id_name` | `automation_id` == the bare test name |
+| 4 | `title` | `TestCase.title` (legacy `/ci/results/bulk` behaviour) |
+| 5 | `title_dotted` | `dotted(title)` |
+
+`dotted()` rewrites `a/b.py::C::test_x` → `a.b.C.test_x`. Only that direction is
+well-defined, so normalisation is applied to the **stored** identifier, never to
+the incoming XML. It exists because pytest's JUnit output carries no node ID —
+`junit_family=xunit2` emits neither `file` nor `line`. A duplicate key is reported
+as `ambiguous`, never resolved first-wins. Import is idempotent: results upsert on
+`(run, case)` and no-op resubmits write no history.
 
 **TestResultCreate**: `test_case_id, status?, comment?, message?, stack_trace?, execution_time?, defects?, step_results?`
 **TestResultUpdate**: `status?, comment?, message?, stack_trace?, execution_time?, defects?, step_results?`
@@ -252,6 +312,10 @@ With `?group_by=suite` the same endpoint returns `TestRunSuiteTree` = `{ run, ro
 
 **Bulk import**: Accepts JUnit XML. Matches `classname.name` against `TestCase.title`. Unmatched test cases are counted in `skipped` (response field name — unrelated to result status). JUnit `<skipped>` elements are imported as result status `no_run`.
 **Badge**: Pass rate ≥ 90% → green, ≥ 70% → yellow, < 70% → red. Returns `Cache-Control: no-cache`.
+
+> `POST /ci/results/bulk` is the **legacy** import path (title matching, counts-only
+> response). New integrations use `POST /test-runs/{run_id}/results/import` — see
+> Test Results. The old route is unchanged and still supported.
 
 ---
 

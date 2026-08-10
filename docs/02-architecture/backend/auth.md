@@ -58,6 +58,116 @@ the durable outbox — see `docs/03-engineering/operations/email.md`.
 
 ---
 
+## API keys (plan 050)
+
+A second credential type for CI pipelines and the CLI, sent as
+`X-API-Key: tsk_<prefix>_<secret>`. Sending **both** an `Authorization` header
+and `X-API-Key` is a **400** — the server never guesses which was meant.
+
+Why not reuse username/password for CI: access tokens live 30 minutes, refresh
+tokens rotate on every use (awkward in an ephemeral runner), there is **no
+blocklist** so a leaked JWT cannot be revoked without rotating `SECRET_KEY` for
+everyone, `lead` is the default role for new users, and every login writes an
+audit row. An API key is revocable, project-scopable, and role-capped.
+
+### Storage
+
+`api_keys` (see `docs/06-generated/db-schema.md`). Only `key_prefix` and
+`key_hash` persist — the plaintext is returned once, at mint, and is
+unrecoverable afterwards. Hashing is **SHA-256, not bcrypt**: the secret is 256
+bits of CSPRNG output, so there is no dictionary for a slow KDF to defend
+against, while bcrypt would cost ~100 ms on every request an unattended pipeline
+makes. Lookup is one indexed hit on `key_prefix`, then
+`secrets.compare_digest`.
+
+### Effective role — how a key cannot escalate
+
+```python
+effective_role = min(key.role, owner.role, settings.API_KEY_MAX_ROLE)   # by ROLE_HIERARCHY
+```
+
+`API_KEY_MAX_ROLE` defaults to `tester`. Three properties fall out:
+
+- **No API key can satisfy `require_role(LEAD, ADMIN)`.** Every user-management,
+  project-create/delete and suite-delete route is closed to keys through the
+  *existing* gates — there is no per-route allowlist to maintain and forget.
+- Demoting a user **immediately** degrades all their keys; the role is
+  recomputed per request, never frozen at mint time.
+- Minting can never produce a key stronger than its owner.
+
+### Keys cannot manage keys
+
+`POST/GET/DELETE /api-keys` use `require_jwt`, which rejects API-key principals
+with 403. A key that could mint or revoke keys would turn a leak from a
+revocable credential into a persistent foothold.
+
+### Project scope is a write guard, not a read ACL
+
+A key with `project_id` set is checked against the target run on the CLI-facing
+write routes (`/test-runs/{id}/results/import`). It is **not** a general read
+ACL — `project_id` is not in the path on most endpoints, so a scoped key can
+still read other projects at its effective role. Read it as: *tester everywhere,
+imports only here.* Tracked in `docs/04-execution/tech-debt.md`.
+
+### Rejection
+
+`api_key_service.resolve` returns `None` — and the route 401s — for every
+failure: unknown prefix, wrong secret, revoked, expired, missing or inactive
+owner, `no_access` owner. The reasons are deliberately not distinguished to the
+client; doing so would confirm which prefixes exist.
+
+`last_used_at` is bumped at most once per `API_KEY_LAST_USED_THROTTLE_SECONDS`
+(default 60) per key. It is an operator convenience for spotting stale keys, not
+an audit record — mint and revoke are what get audited.
+
+---
+
+## Principal — one abstraction over both credentials
+
+`app/dependencies.py` resolves either credential into a single `Principal`:
+
+```python
+@dataclass(frozen=True)
+class Principal:
+    user: User
+    role: UserRole            # EFFECTIVE role — may be lower than user.role
+    project_id: int | None    # None = unscoped
+    via: Literal["jwt", "api_key"]
+    api_key_id: int | None
+```
+
+**Always authorise against `principal.role`, never `principal.user.role`.**
+
+The two long-standing dependencies are now thin wrappers over `get_principal`,
+so every pre-existing route keeps working verbatim and invariant 7 stays
+literally true:
+
+```python
+async def get_current_user(principal: Principal = Depends(get_principal)) -> User:
+    return principal.user
+
+def require_role(*roles: UserRole) -> Callable[..., object]:
+    async def checker(principal: Principal = Depends(get_principal)) -> User:
+        if principal.role not in roles:      # effective role
+            raise ForbiddenError()
+        return principal.user
+    return checker
+```
+
+`GET /auth/principal` exposes this to clients. `/auth/me` answers "which account
+is this" and returns the account's own role; for a key that overstates what the
+credential can do, so `/auth/principal` returns both `account_role` and
+`effective_role` plus the scope. `testoria whoami` renders it.
+
+| Dependency | Accepts | Use for |
+|---|---|---|
+| `get_principal` | JWT or API key | When the effective role or scope matters |
+| `get_current_user` | JWT or API key | Any authenticated route (unchanged behaviour) |
+| `require_role(*roles)` | JWT or API key | Role-gated routes (unchanged call sites) |
+| `require_jwt` | **JWT only** | Credential management — keys must not manage keys |
+
+---
+
 ## JWT structure
 
 **Access token payload:**
@@ -94,6 +204,10 @@ The `type` claim is checked in `decode_token` — an access token cannot be used
 | `decode_token(token, expected_type)` | Decode + verify; raises `UnauthorizedError` on failure |
 | `get_password_hash(password)` | bcrypt hash |
 | `verify_password(plain, hashed)` | bcrypt verify |
+| `generate_api_key()` | Mint `(full_key, key_prefix, key_hash)`; plaintext is never stored |
+| `hash_api_key(secret)` | SHA-256 hex — see the API keys section for why not bcrypt |
+| `split_api_key(raw)` | `tsk_<prefix>_<secret>` → `(prefix, secret)`, or None for junk |
+| `verify_api_key(secret, hash)` | Constant-time compare |
 
 ---
 
@@ -162,6 +276,7 @@ Role checking uses explicit role lists (not hierarchy-based minimum), giving eac
 - Passwords are hashed with bcrypt — never stored in plaintext
 - `hashed_password` is excluded from all Pydantic response schemas
 - Refresh tokens are currently stateless (JWT only) — no server-side storage
+- API key secrets are never stored, never logged, and never returned after mint
 - The frontend stores tokens in `localStorage` (XSS risk, documented trade-off)
 - Future improvement: JWT blocklist in Redis for true logout and refresh token rotation
 

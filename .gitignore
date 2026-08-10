@@ -51,3 +51,7 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+
+# CLI build artefacts
+cli/*.egg-info/
+cli/.pytest_cache/

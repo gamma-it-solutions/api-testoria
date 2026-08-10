@@ -1,5 +1,11 @@
 # Execution Plan: 014 — CLI Foundation & Setup
 
+> **SUPERSEDED (2026-08-10) by `050-be-cli-result-upload-and-api-keys`.**
+> This plan predates `automation_id` (plan 024), the `in_progress`→`active`
+> rename (plan 039) and `no_run` (plan 032), and it specifies a hand-maintained
+> `case_map.json` that plan 050 removes in favour of `automation_id` matching.
+> Kept for provenance only — do not execute.
+
 **Date**: 2026-03-24
 **Author**: gabi
 **Status**: Draft

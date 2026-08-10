@@ -13,6 +13,7 @@ from app.database import Base
 from app.models import user  # noqa: F401
 from app.models import project, tag, test_case, test_suite  # noqa: F401
 from app.models import (  # noqa: F401
+    api_key,
     audit_log,
     email_outbox,
     milestone,

@@ -24,7 +24,7 @@ The Testoria backend is a **FastAPI REST API** that powers the Testoria test man
 | Caller | How |
 |--------|-----|
 | **Testoria Web Frontend** (Vue 3 SPA) | REST/JSON over HTTPS — authenticated with JWT |
-| **Testoria CLI** (Python tool) | REST/JSON — used in CI/CD pipelines |
+| **Testoria CLI** (`cli/`, `testoria-cli`) | REST/JSON — `testoria upload` pushes CI results; API-key auth. See feature 011 |
 | **CI/CD systems** (GitHub Actions, GitLab CI, Jenkins) | Webhook + bulk result submission endpoints |
 | **Centrifugo** (WebSocket server) | Backend publishes events via HTTP API; Centrifugo uses Redis engine and broadcasts to frontend via WebSocket |
 

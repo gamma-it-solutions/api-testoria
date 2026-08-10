@@ -99,6 +99,41 @@ class TestResultResponse(BaseModel):
     attachments: list[ResultAttachmentResponse] = Field(default_factory=list)
 
 
+MatchRule = Literal[
+    "automation_id",
+    "automation_id_dotted",
+    "automation_id_name",
+    "title",
+    "title_dotted",
+]
+UnmatchedReason = Literal["no_match", "ambiguous", "out_of_scope"]
+
+# A fully-misconfigured 5000-test run must not return a multi-megabyte body.
+# `unmatched` keeps the true count when the list is truncated.
+MAX_REPORTED_UNMATCHED = 100
+
+
+class UnmatchedCase(BaseModel):
+    identifier: str
+    classname: str | None
+    name: str
+    status: str
+    reason: UnmatchedReason
+
+
+class ResultImportReport(BaseModel):
+    run_id: int
+    total: int
+    matched: int
+    submitted: int
+    unmatched: int
+    unmatched_cases: list[UnmatchedCase] = Field(default_factory=list)
+    # Which rule matched how many — surfaces a suite matching on fragile `title`
+    # rather than stable `automation_id`.
+    matched_by: dict[str, int] = Field(default_factory=dict)
+    status_counts: dict[str, int] = Field(default_factory=dict)
+
+
 class TestResultHistoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

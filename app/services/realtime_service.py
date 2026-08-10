@@ -14,6 +14,26 @@ async def publish_result_update(
     await _safe_publish(f"project:{project_id}", event)
 
 
+async def publish_result_bulk(
+    run_id: int, project_id: int, submitted: int, status_counts: dict[str, int]
+) -> None:
+    """One aggregate event for a batch import.
+
+    A CI import of N results must not publish N events. Additive: per-result
+    `test_result` events still fire for UI-driven submits.
+    """
+    event = {
+        "type": "test_result_bulk",
+        "data": {
+            "run_id": run_id,
+            "submitted": submitted,
+            "status_counts": status_counts,
+        },
+    }
+    await _safe_publish(f"testrun:{run_id}", event)
+    await _safe_publish(f"project:{project_id}", event)
+
+
 async def publish_run_status(run_id: int, project_id: int, status: str) -> None:
     event = {"type": "test_run_status", "data": {"run_id": run_id, "status": status}}
     await _safe_publish(f"testrun:{run_id}", event)
