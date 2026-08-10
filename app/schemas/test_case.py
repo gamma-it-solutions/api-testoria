@@ -99,6 +99,9 @@ class TestCaseListFilters(BaseModel):
     status: Literal["draft", "active", "deprecated"] | None = None
     tag_ids: list[int] | None = None
     automation_id: str | None = None
+    # None = no filter. False surfaces cases that no automated run can link to —
+    # the gap a CLI import report points at.
+    has_automation_id: bool | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 

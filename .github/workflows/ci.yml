@@ -32,6 +32,39 @@ jobs:
       - name: Unit tests
         run: pytest tests/unit/ -q
 
+  cli:
+    name: CLI — Lint, Type-check & Unit Tests
+    runs-on: ubuntu-latest
+    # The CLI ships from this repo precisely so the client cannot drift from the
+    # API it talks to — so it is checked on every backend PR, not on its own.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install CLI
+        working-directory: cli
+        run: pip install -e '.[dev]'
+
+      - name: Lint
+        working-directory: cli
+        run: ruff check testoria_cli tests
+
+      - name: Type-check
+        working-directory: cli
+        run: mypy testoria_cli
+
+      - name: Unit tests
+        working-directory: cli
+        run: pytest -q
+
+      - name: Entry point is installed
+        run: testoria --version
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest

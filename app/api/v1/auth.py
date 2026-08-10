@@ -12,12 +12,13 @@ from app.core.security import (
     verify_password,
 )
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import Principal, get_current_user, get_principal
 from app.models.mixins import not_deleted
 from app.models.user import User
 from app.schemas.auth import (
     ForgotPasswordRequest,
     MessageResponse,
+    PrincipalResponse,
     ResetPasswordRequest,
     ResetTokenValidateResponse,
 )
@@ -84,6 +85,24 @@ async def refresh_token(body: RefreshBody, db: AsyncSession = Depends(get_db)) -
 @router.get("/me", response_model=UserResponse, summary="Get current user")
 async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+@router.get(
+    "/principal",
+    response_model=PrincipalResponse,
+    summary="Show what the presented credential is allowed to do",
+)
+async def get_principal_info(
+    principal: Principal = Depends(get_principal),
+) -> PrincipalResponse:
+    return PrincipalResponse(
+        user_id=principal.user.id,
+        username=principal.user.username,
+        account_role=principal.user.role,
+        effective_role=str(principal.role),
+        project_id=principal.project_id,
+        via=principal.via,
+    )
 
 
 @router.post("/logout", summary="Logout current user")

@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 
+    # API keys — non-interactive credentials for CI pipelines and the CLI.
+    # The effective role of a key is min(key.role, owner.role, API_KEY_MAX_ROLE),
+    # so capping at `tester` here is what keeps every require_role(LEAD, ADMIN)
+    # route closed to API keys without a per-route allowlist.
+    API_KEY_MAX_ROLE: str = "tester"
+    API_KEY_DEFAULT_TTL_DAYS: int = 90
+    # `last_used_at` is an operator convenience, not an audit record — throttled
+    # so a busy CI key does not cost one UPDATE per request.
+    API_KEY_LAST_USED_THROTTLE_SECONDS: int = 60
+
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 

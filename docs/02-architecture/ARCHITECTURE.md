@@ -13,10 +13,11 @@ app/
 ├── main.py          — FastAPI app: routers wired, middleware configured, health endpoint; lifespan starts the email drain worker + closes Redis
 ├── config.py        — Pydantic Settings (reads .env). Single source for all config.
 ├── database.py      — Async SQLAlchemy engine + AsyncSessionLocal factory + get_db dependency + Base
-├── dependencies.py  — FastAPI Depends: get_current_user, require_role()
+├── dependencies.py  — FastAPI Depends: Principal, get_principal, get_current_user, require_role(), require_jwt (plan 050)
 │
 ├── api/v1/          — HTTP layer. One file per domain. Thin: validate input → call service → return schema.
 │   ├── auth.py          POST /auth/login, /auth/refresh, /auth/logout, GET /auth/me, POST /auth/forgot-password, /auth/reset-password, GET /auth/reset-password/validate (no public register — invite-only, plan 049)
+│   ├── api_keys.py      API key mint/list/revoke — JWT-only (keys cannot manage keys; plan 050)
 │   ├── users.py         User management (Lead or Admin; Lead capped at Lead) + roles list
 │   ├── projects.py      Project CRUD + stats
 │   ├── test_suites.py   Suite CRUD (nested under projects + standalone by ID)
@@ -24,7 +25,7 @@ app/
 │   ├── tags.py          Tag list/search/create (idempotent)
 │   ├── milestones.py    Milestone CRUD (nested under projects + standalone by ID)
 │   ├── test_runs.py     Test run CRUD + close + progress + cases-with-results
-│   ├── test_results.py  Result submit/update + history + attachment upload/delete
+│   ├── test_results.py  Result submit/update + JUnit/JSON import + history + attachment upload/delete
 │   ├── reports.py       Dashboard, run report (JSON/PDF/Excel), metrics, custom report
 │   ├── ci_integration.py  CI webhooks, JUnit XML bulk submit, badge SVG
 │   ├── defects.py       Jira/GitHub/GitLab defect creation from test results
@@ -42,6 +43,7 @@ app/
 │   ├── test_result.py      TestResult (UNIQUE run+case, upsert semantics)
 │   ├── result_attachment.py  ResultAttachment (object_key in MinIO/S3, storage_backend default "s3"; plan 042)
 │   ├── result_history.py    ResultHistory (append-only audit trail)
+│   ├── api_key.py           ApiKey (sha256 hash, revoked_at instead of soft-delete; plan 050)
 │   ├── audit_log.py         AuditLog (entity change tracking)
 │   └── email_outbox.py      EmailOutbox (durable email queue; pending→sending→sent/failed; plan 048)
 │
@@ -131,6 +133,12 @@ PostgreSQL (via asyncpg)
 |---|-----------|
 | JWT creation and verification | `app/core/security.py` |
 | Auth dependency (current user) | `app/dependencies.py` → `get_current_user` |
+| Effective role / credential scope | `app/dependencies.py` → `Principal`, `get_principal` — authorise on `principal.role`, never `principal.user.role` |
+| API key mint / resolve / revoke | `app/services/api_key_service.py` |
+| Why an API key can't reach admin routes | `app/services/api_key_service.py` → `effective_role()` + `settings.API_KEY_MAX_ROLE` |
+| JUnit/JSON result import + case matching | `app/services/result_import_service.py` → `import_results()`, `dotted()` |
+| Batch result upsert (CI imports) | `app/services/test_result_service.py` → `submit_many()` |
+| The CLI | `cli/` — separate package, talks HTTP only, never imports `app/` |
 | Role definitions and hierarchy | `app/core/roles.py` → `UserRole`, `ROLE_HIERARCHY`, `ROLE_METADATA` |
 | Role/permission checks | `app/dependencies.py` → `require_role(*roles)` |
 | DB session management | `app/database.py` → `get_db` (auto commit/rollback) |
@@ -234,6 +242,7 @@ PostgreSQL (via asyncpg)
 | `11cd61046802` | Add test_run_test_cases association table |
 | `b368c6900009` | Add step_results JSON column to test_results |
 | `a1c2e3f40576` | Add email_outbox table (durable email queue; plan 048) |
+| `c3d4e5f60789` | Add api_keys table (CI/CLI credentials; plan 050) |
 
 ---
 

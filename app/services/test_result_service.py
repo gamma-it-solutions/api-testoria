@@ -87,7 +87,7 @@ async def get_result(db: AsyncSession, result_id: int) -> TestResult:
     return tr
 
 
-def _run_scope_case_ids_subquery(run: TestRun) -> Select[tuple[int]]:
+def run_scope_case_ids(run: TestRun) -> Select[tuple[int]]:
     """Subquery yielding `test_case_id`s currently in the run's scope.
 
     Mirrors the scope rules of `GET /test-runs/{id}/cases`:
@@ -124,7 +124,7 @@ async def list_results(
     )
     if not include_orphans:
         query = query.where(
-            TestResult.test_case_id.in_(_run_scope_case_ids_subquery(run))
+            TestResult.test_case_id.in_(run_scope_case_ids(run))
         )
     result = await db.execute(query.order_by(TestResult.test_case_id))
     return list(result.scalars().all())
@@ -238,6 +238,108 @@ async def submit(
     )
 
     return tr
+
+
+async def submit_many(
+    db: AsyncSession,
+    run_id: int,
+    items: list[TestResultCreate],
+    user_id: int,
+) -> tuple[int, dict[str, int]]:
+    """Upsert many results in one pass. Returns `(submitted, status_counts)`.
+
+    Same upsert and history semantics as `submit()` — it shares
+    `_should_record_history` — but validates the run once, fetches every target
+    case in one query, transitions the run at most once, and publishes a single
+    aggregate event instead of one per result. `submit()` per result costs ~6
+    queries plus a Centrifugo round-trip; a 2000-case CI import cannot pay that.
+    """
+    run = await _get_run(db, run_id)
+    if not items:
+        return 0, {}
+
+    case_ids = {item.test_case_id for item in items}
+    cases_result = await db.execute(
+        select(TestCase).where(TestCase.id.in_(case_ids), not_deleted(TestCase))
+    )
+    cases = {c.id: c for c in cases_result.scalars().all()}
+    missing = case_ids - cases.keys()
+    if missing:
+        raise NotFoundError(f"TestCase {sorted(missing)[0]} not found")
+
+    existing_result = await db.execute(
+        select(TestResult).where(
+            TestResult.test_run_id == run_id,
+            TestResult.test_case_id.in_(case_ids),
+            not_deleted(TestResult),
+        )
+    )
+    existing = {r.test_case_id: r for r in existing_result.scalars().all()}
+
+    submitted = 0
+    status_counts: dict[str, int] = {}
+    any_meaningful_change = False
+
+    for item in items:
+        case = cases[item.test_case_id]
+        if item.step_results is not None:
+            _validate_step_results(case, item.step_results)
+
+        payload = item.model_dump()
+        payload["status"] = _normalise_status(payload["status"])
+        if item.step_results is not None:
+            payload["step_results"] = _normalise_step_results(item.step_results)
+
+        tr = existing.get(item.test_case_id)
+        created = tr is None
+        old_status = tr.status if tr is not None else None
+        old_comment = tr.comment if tr is not None else None
+
+        if tr is not None:
+            for field, value in payload.items():
+                if field == "test_case_id":
+                    continue
+                setattr(tr, field, value)
+            tr.tested_by = user_id
+            tr.tested_at = datetime.now(UTC)
+        else:
+            tr = TestResult(
+                test_run_id=run_id,
+                tested_by=user_id,
+                tested_at=datetime.now(UTC),
+                **payload,
+            )
+            db.add(tr)
+            existing[item.test_case_id] = tr
+
+        await db.flush()
+
+        if _should_record_history(
+            created=created,
+            old_status=old_status,
+            old_comment=old_comment,
+            new_status=tr.status,
+            new_comment=tr.comment,
+        ):
+            await _record_history(db, tr.id, tr.status, tr.comment, user_id)
+            any_meaningful_change = True
+
+        submitted += 1
+        status_counts[tr.status] = status_counts.get(tr.status, 0) + 1
+
+    await db.flush()
+
+    if any_meaningful_change:
+        await test_run_service.transition_to_active(db, run_id, user_id=user_id)
+
+    await realtime_service.publish_result_bulk(
+        run_id=run_id,
+        project_id=run.project_id,
+        submitted=submitted,
+        status_counts=status_counts,
+    )
+
+    return submitted, status_counts
 
 
 async def update_result(

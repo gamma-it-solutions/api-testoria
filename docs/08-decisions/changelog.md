@@ -5,6 +5,99 @@ For formal ADRs, see `docs/02-architecture/decisions/`.
 
 ---
 
+## 2026-08-10 — CLI result upload + API keys (plan 050)
+
+### What
+- **`api_keys` table + `X-API-Key` auth.** Non-interactive credentials for CI and
+  the CLI. Mint/list/revoke at `/api/v1/api-keys`; the plaintext is returned once.
+- **`Principal` abstraction.** `get_current_user` and `require_role` are now thin
+  wrappers over a new `get_principal`, which resolves either a JWT or an API key.
+  ~60 existing routes were not touched.
+- **`GET /auth/principal`** — reports `account_role` vs `effective_role` and scope.
+- **`POST /test-runs/{run_id}/results/import`** — JUnit XML or JSON, matched on
+  `automation_id` first, returning a full report of what did and did not match.
+- **`test_result_service.submit_many`** — batch upsert with one run transition and
+  one aggregate `test_result_bulk` realtime event.
+- **`?has_automation_id=`** filter on the test-case list.
+- **`cli/`** — the `testoria` CLI (`upload`, `auth`, `run`, `case`, `whoami`),
+  its own pyproject, checked by a new `cli` job in `ci.yml`.
+
+### Why
+
+**API keys over username/password for CI.** Specific to this codebase, not
+general principle: there is no JWT blocklist (a leaked token cannot be revoked
+without rotating `SECRET_KEY` for everyone), access tokens live 30 minutes,
+refresh tokens rotate on every use (awkward in an ephemeral runner), `lead` is
+the default role for new users, and every login writes an audit row.
+
+**SHA-256, not bcrypt, for the key hash.** The secret is 256 bits of CSPRNG
+output — there is no dictionary for a slow KDF to defend against, and bcrypt's
+~100 ms would be paid on every request an unattended pipeline makes. Constant-time
+comparison still applies.
+
+**Containment by role cap, not by route allowlist.** `effective_role =
+min(key.role, owner.role, API_KEY_MAX_ROLE)` with the cap at `tester` means no
+key can satisfy `require_role(LEAD, ADMIN)` — every admin route is closed through
+the gates that already existed. Verified live: a key owned by a *lead* gets 403
+on `/users` while the same account's JWT gets 200. An allowlist would have to be
+maintained forever and would eventually be forgotten.
+
+**`require_jwt` on `/api-keys`.** A key that could mint keys turns a leak from a
+revocable credential into a persistent foothold.
+
+**The `dotted()` matching rule — the one that made this work at all.** The first
+design matched `automation_id` against `classname.name` directly. Generating real
+JUnit XML from the pinned pytest 8.3.5 showed that would have matched **nothing**:
+pytest defaults to `junit_family=xunit2`, which emits no `file`, `line`, or node
+ID, so `classname.name` is the *dotted* form of the node ID while `automation_id`
+in `testoria-tests` is the raw node ID. `dotted()` normalises the **stored** value
+(`a/b.py::C::test_x` → `a.b.C.test_x`); the reverse is not recoverable because
+nothing marks where the module path ends and the class begins.
+
+**Ambiguity is reported, not resolved.** A duplicated `automation_id`, or two XML
+entries claiming one case, yields `reason="ambiguous"` rather than a first-wins
+pick — the second would silently overwrite the first.
+
+**The import endpoint always returns 200 with a report.** `--strict` is a client
+policy; baking it into the API would force every consumer into the same failure
+taste. In CI, `--strict` belongs on a dedicated drift-check job, not the
+regression job — failing a nightly on an uncatalogued test trains people to
+ignore the signal.
+
+**`submit_many` instead of looping `submit`.** Per-result `submit()` costs ~6
+queries plus a Centrifugo publish and a run transition; a 2000-case import cannot
+pay that. History semantics are shared via `_should_record_history` and asserted
+equal to `submit()` by test, because a CI import writing different data than the
+UI would be a silent divergence.
+
+**The CLI lives in `cli/` in this repo.** The contract cannot drift when one PR
+changes both sides; `ci.yml` checks it on every backend change.
+
+**The API key is never written to disk.** Only JWTs (which expire) go to
+`~/.testoria/config.yaml` (mode `0600`), so a CI secret cannot leak into a mounted
+home directory.
+
+### Deviations from the plan
+- **Added `GET /auth/principal`,** which the plan did not have. End-to-end testing
+  showed `whoami` printing the *account* role (`lead`) for a key that was actually
+  capped at `tester` — a user had no way to see what their key could really do.
+- **`--attach` matches file stem to `automation_id`,** as planned, but is not part
+  of the strict/close flow.
+- **Typer does not honour `click.ClickException` subclasses** (0.27's `_main`
+  re-raises them, so the pretty-exception hook prints a traceback and exits 1
+  regardless of `exit_code`). Exit codes are produced by a `@handle_errors`
+  decorator converting to `typer.Exit` at each command boundary — done per command
+  rather than in the console-script wrapper so the codes are testable under
+  `CliRunner`. Verified against the installed binary, not only in tests.
+
+### Deferred
+- pytest plugin — pytest already emits JUnit XML; a plugin is a second
+  integration surface for the same outcome.
+- PyPI publishing — installable from a git ref for now.
+- Retiring `POST /ci/results/bulk` — kept, unchanged; tracked as tech debt.
+
+---
+
 ## 2026-08-06 — CD: production domains restored, GH_PAT dropped for GITHUB_TOKEN
 
 ### What
