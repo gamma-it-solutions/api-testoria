@@ -57,7 +57,8 @@ def report_file(tmp_path: Path) -> Path:
 def fake(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     client = FakeClient()
 
-    def build(_credentials: Any) -> FakeClient:
+    def build(_credentials: Any, **_kwargs: Any) -> FakeClient:
+        # **_kwargs absorbs prefer_jwt, which main passes for key commands.
         return client
 
     monkeypatch.setattr("testoria_cli.main.TestoriaClient", build)

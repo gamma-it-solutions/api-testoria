@@ -71,8 +71,13 @@ def test_config_file_is_owner_only(tmp_path: Path) -> None:
     assert mode == 0o600
 
 
-def test_api_key_suppresses_a_stored_jwt(tmp_path: Path) -> None:
-    """Only one credential is ever sent — the server 400s on both."""
+def test_both_credentials_are_carried_but_the_key_wins(tmp_path: Path) -> None:
+    """Credentials hold both; the *client* picks the single header to send.
+
+    The JWT has to survive resolution so `testoria key …` can fall back to it —
+    key management is JWT-only server-side. The "only one credential is ever
+    sent" invariant is enforced in the client and asserted in test_client.py.
+    """
     path = tmp_path / "config.yaml"
     config_module.save(Config(url="https://x", access_token="jwt"), path)
 
@@ -81,7 +86,7 @@ def test_api_key_suppresses_a_stored_jwt(tmp_path: Path) -> None:
     )
 
     assert resolved.api_key == "tsk_a_b"
-    assert resolved.access_token is None
+    assert resolved.access_token == "jwt"
     assert resolved.via == "api_key"
 
 
