@@ -20,16 +20,42 @@ Requires Python 3.11+.
 
 ## Authenticate
 
-**CI — use an API key.** Mint one from the UI, or:
+**CI — use an API key.** Log in once as yourself, then mint one:
 
 ```bash
-curl -sX POST https://api.testoria.example/api/v1/api-keys \
-  -H "Authorization: Bearer $JWT" -H 'Content-Type: application/json' \
-  -d '{"name":"github-actions","project_id":7,"role":"tester"}'
-# -> {"key": "tsk_a1b2c3d4_…"}   shown ONCE
+testoria auth login                       # interactive; stores a JWT at 0600
+testoria key create --name github-actions --project 7
 ```
 
-Store it as a CI secret and expose it as `TESTORIA_API_KEY`:
+```
+✓ Created API key github-actions
+
+  tsk_a1b2c3d4_…
+
+  This is the only time the key is shown. Store it in your CI secrets now.
+  role tester · scope project 1 · expires 2026-11-08
+```
+
+Scriptable, for provisioning:
+
+```bash
+KEY=$(testoria key create --name github-actions --project 7 -o json | jq -r .key)
+gh secret set TESTORIA_API_KEY --body "$KEY"
+```
+
+Keys default to a **90-day** TTL. Review and rotate them with:
+
+```bash
+testoria key list                   # id, prefix, access, last used, status
+testoria key revoke --id 3          # stops working on the next request
+```
+
+`testoria key …` requires an interactive login — an API key cannot mint or
+revoke keys, so `TESTORIA_API_KEY` is deliberately ignored by those commands
+(the CLI says so rather than letting the server return a bare 403). You can also
+mint from Swagger at `<your-api>/docs` → **Authorize** → `POST /api/v1/api-keys`.
+
+Store the key as a CI secret and expose it as `TESTORIA_API_KEY`:
 
 ```bash
 export TESTORIA_URL=https://api.testoria.example
@@ -55,8 +81,9 @@ The API key is **never written to disk** — it is read from `--api-key` or
 directory or a committed dotfile.
 
 Resolution order: **flag > environment > config file**. If both a key and a
-stored JWT resolve, the key wins and only one credential is ever sent (the
-server rejects both headers at once by design).
+stored JWT resolve, the key wins — except for `testoria key …`, which is
+JWT-only because the server refuses to let a key manage keys. Either way exactly
+one credential is sent; the server rejects both headers at once by design.
 
 ---
 
@@ -236,6 +263,10 @@ before writing XML must not hang the Job:
 ```bash
 testoria whoami                                   # what these credentials can do
 testoria auth login | status | logout
+testoria key create --name ci --project 7 [--role tester]
+                    [--expires-in-days 30 | --never-expires] [--for-user 9]
+testoria key list [--include-revoked] [--user 9]
+testoria key revoke --id 3
 testoria run create --project 7 --name "Sprint 42"
 testoria run list --project 7 [--status active]
 testoria run show --run 42

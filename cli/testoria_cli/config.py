@@ -94,10 +94,13 @@ def resolve(
     resolved_url = url or environ.get(ENV_URL) or stored.url or ""
     resolved_key = api_key or environ.get(ENV_API_KEY) or None
 
-    # An API key always wins over a stored JWT, and only one is ever sent —
-    # the server rejects both headers at once by design.
+    # Both are carried; the *client* decides which single header to send (an API
+    # key wins by default — the server rejects both at once by design). Keeping
+    # the JWT here is what lets `testoria key …` fall back to it: key management
+    # is JWT-only, because a key that could mint keys would be a foothold rather
+    # than a revocable credential.
     return Credentials(
         url=resolved_url.rstrip("/"),
         api_key=resolved_key,
-        access_token=None if resolved_key else stored.access_token,
+        access_token=stored.access_token,
     )

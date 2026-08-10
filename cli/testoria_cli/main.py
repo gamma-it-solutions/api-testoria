@@ -5,7 +5,7 @@ import typer
 from testoria_cli import __version__
 from testoria_cli import config as config_module
 from testoria_cli.client import TestoriaClient
-from testoria_cli.commands import auth, cases, runs
+from testoria_cli.commands import auth, cases, keys, runs
 from testoria_cli.commands.upload import upload as upload_command
 from testoria_cli.errors import handle_errors
 
@@ -19,6 +19,7 @@ app = typer.Typer(
 app.add_typer(auth.app, name="auth")
 app.add_typer(runs.app, name="run")
 app.add_typer(cases.app, name="case")
+app.add_typer(keys.app, name="key")
 
 
 class _LazyContext(dict[str, Any]):
@@ -32,10 +33,11 @@ class _LazyContext(dict[str, Any]):
     """
 
     def __missing__(self, key: str) -> Any:
-        if key != "client":
+        if key not in ("client", "jwt_client"):
             raise KeyError(key)
-        client = TestoriaClient(self["credentials"])
-        self["client"] = client
+        # `jwt_client` refuses the API key: /api-keys is JWT-only server-side.
+        client = TestoriaClient(self["credentials"], prefer_jwt=key == "jwt_client")
+        self[key] = client
         return client
 
 

@@ -16,7 +16,13 @@ def emit_json(payload: Any) -> None:
 
 
 def table(title: str, columns: list[str], rows: list[list[str]]) -> None:
-    rendered = Table(*columns, title=title or None)
+    # overflow="fold", not rich's default "ellipsis": every table here lists
+    # identifiers people copy — key names, prefixes, pytest node IDs in
+    # `automation_id`. A folded cell costs a line; a truncated one silently
+    # hands back a value that does not work when pasted.
+    rendered = Table(title=title or None)
+    for name in columns:
+        rendered.add_column(name, overflow="fold")
     for row in rows:
         rendered.add_row(*row)
     console.print(rendered)

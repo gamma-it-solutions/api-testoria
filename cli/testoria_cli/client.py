@@ -15,11 +15,33 @@ _BACKOFF_SECONDS = 1.0
 
 
 class TestoriaClient:
-    def __init__(self, credentials: Credentials, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        credentials: Credentials,
+        timeout: float = 30.0,
+        prefer_jwt: bool = False,
+    ) -> None:
+        """`prefer_jwt` forces the interactive login for JWT-only routes.
+
+        Key management is JWT-only server-side. Sending the API key there would
+        earn a bare 403, so those commands ask for the JWT explicitly and get a
+        message that names the fix instead.
+        """
         if not credentials.url:
             raise AuthError(
                 "No Testoria URL. Pass --url, set TESTORIA_URL, "
                 "or run `testoria auth login`."
+            )
+        if prefer_jwt and not credentials.access_token:
+            extra = (
+                " An API key cannot manage keys, so TESTORIA_API_KEY will not "
+                "work here."
+                if credentials.api_key
+                else ""
+            )
+            raise AuthError(
+                f"This command needs an interactive login. "
+                f"Run `testoria auth login`.{extra}"
             )
         if not credentials.api_key and not credentials.access_token:
             raise AuthError(
@@ -27,6 +49,7 @@ class TestoriaClient:
                 "or run `testoria auth login`."
             )
         self._credentials = credentials
+        self._prefer_jwt = prefer_jwt
         self._base_url = f"{credentials.url}/api/v1"
         self._client = httpx.Client(timeout=timeout)
 
@@ -36,7 +59,7 @@ class TestoriaClient:
 
     def _headers(self) -> dict[str, str]:
         # Exactly one credential — sending both is a 400 by design.
-        if self._credentials.api_key:
+        if self._credentials.api_key and not self._prefer_jwt:
             return {"X-API-Key": self._credentials.api_key}
         return {"Authorization": f"Bearer {self._credentials.access_token}"}
 
@@ -96,6 +119,9 @@ class TestoriaClient:
 
     def put(self, path: str, json: Any = None) -> Any:
         return self._request("PUT", path, json=json)
+
+    def delete(self, path: str) -> Any:
+        return self._request("DELETE", path)
 
     def upload(
         self,
