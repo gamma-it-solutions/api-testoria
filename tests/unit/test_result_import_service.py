@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -122,13 +124,19 @@ def test_detect_format_sniffs_when_there_is_no_extension() -> None:
 # --------------------------------------------------------------------------
 
 
+_fixture_seq = itertools.count()
+
+
 async def _fixture_run(
     db: AsyncSession, cases: list[tuple[str | None, str]]
 ) -> tuple[TestRun, dict[str, int], User]:
     """Build a project/suite/run plus `cases` as (automation_id, title)."""
+    # Unique per call — tests that build two graphs would otherwise collide on
+    # the users.username / users.email unique constraints.
+    seq = next(_fixture_seq)
     user = User(
-        username="importer",
-        email="importer@example.com",
+        username=f"importer{seq}",
+        email=f"importer{seq}@example.com",
         hashed_password="x",
         role="tester",
         is_active=True,
@@ -324,3 +332,52 @@ async def test_import_is_idempotent(db_session: AsyncSession) -> None:
     assert first.submitted == second.submitted == 1
     results = await test_result_service.list_results(db_session, run.id)
     assert len(results) == 1
+
+
+async def test_import_does_not_issue_a_query_per_test_case(
+    db_session: AsyncSession,
+) -> None:
+    """SELECT count must not grow with the number of results.
+
+    This is the whole reason `submit_many` exists: the legacy
+    `ci_service.import_junit_xml` issued one SELECT per <testcase> plus a full
+    `submit()` each. Writes are necessarily O(n) — you have to insert n rows —
+    but lookups must stay bounded, so the assertion is on SELECTs only.
+    """
+    from sqlalchemy import event
+
+    def build_xml(n: int) -> bytes:
+        cases = b"".join(
+            f'<testcase classname="pkg.mod" name="t{i}"/>'.encode() for i in range(n)
+        )
+        return b"<testsuite>" + cases + b"</testsuite>"
+
+    async def count_selects(n: int) -> int:
+        run, _, user = await _fixture_run(
+            db_session, [(f"pkg.mod.t{i}", f"case {i}") for i in range(n)]
+        )
+        selects = 0
+        bind = db_session.get_bind()
+        sync_engine = getattr(bind, "sync_engine", bind)
+
+        def before_cursor_execute(conn, cursor, statement, *args):  # type: ignore[no-untyped-def]
+            nonlocal selects
+            if statement.lstrip().upper().startswith("SELECT"):
+                selects += 1
+
+        event.listen(sync_engine, "before_cursor_execute", before_cursor_execute)
+        try:
+            report = await result_import_service.import_results(
+                db_session, run.id, build_xml(n), user.id, filename="j.xml"
+            )
+        finally:
+            event.remove(sync_engine, "before_cursor_execute", before_cursor_execute)
+        assert report.submitted == n
+        return selects
+
+    small = await count_selects(10)
+    large = await count_selects(60)
+
+    # 6x the results must not mean ~6x the SELECTs. Allow a small constant drift
+    # for the extra fixture rows; O(n) would show up as ~50 additional queries.
+    assert large - small < 10, f"SELECTs grew {small} -> {large}; lookup is O(n)"

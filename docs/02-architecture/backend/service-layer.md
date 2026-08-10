@@ -127,13 +127,15 @@ async def get_progress(db: AsyncSession, run_id: int) -> TestRunProgress:
 | `tag_service` | `tag_service.py` | Tag list, prefix search, idempotent create, `get_or_create_many` (extracted from `test_case_service._resolve_tags`) |
 | `milestone_service` | `milestone_service.py` | Milestone CRUD |
 | `test_run_service` | `test_run_service.py` | Run CRUD, close, progress, get_with_cases, explicit case selection (`set_run_cases`), `transition_to_active` (idempotent planned→active flip triggered by the result service — plan 039). |
-| `test_result_service` | `test_result_service.py` | Result upsert, update, history, per-step validation, attachment upload/delete. Calls `test_run_service.transition_to_active()` after any meaningful result write so the first submit/update on a `planned` run flips it to `active` in the same transaction (plan 039). |
+| `test_result_service` | `test_result_service.py` | Result upsert, update, history, per-step validation, attachment upload/delete. `submit_many` is the batch path for CI imports: validates the run once, fetches cases in one `IN` query, transitions the run at most once and publishes a single aggregate event — it shares `_should_record_history` with `submit` so history semantics cannot drift (plan 050). Calls `test_run_service.transition_to_active()` after any meaningful result write so the first submit/update on a `planned` run flips it to `active` in the same transaction (plan 039). |
 | `report_service` | `report_service.py` | Dashboard + report analytics + custom reports. Pass-rate / result-distribution / trend count only results from completed runs (plan 039); `active_runs` KPI counts `planned + active`. |
 | `import_service` | `import_service.py` | CSV/Excel parse → bulk test case creation |
 | `export_service` | `export_service.py` | Test case → CSV/Excel bytes |
 | `realtime_service` | `realtime_service.py` | Centrifugo event publishing (fire-and-forget) |
 | `audit_service` | `audit_service.py` | Entity change audit logging (`log_action`) |
-| `ci_service` | `ci_service.py` | CI webhook handling, JUnit XML import, badge SVG generation |
+| `ci_service` | `ci_service.py` | CI webhook handling, **legacy** JUnit XML import (title matching), badge SVG generation. New integrations use `result_import_service` — see tech-debt for retirement. |
+| `result_import_service` | `result_import_service.py` | Parse JUnit XML / JSON, resolve each entry to a TestCase (`automation_id` before `title`, via `dotted()` for pytest node ids), and submit the matches through `test_result_service.submit_many`. Returns a `ResultImportReport` naming every unmatched case and why (plan 050). |
+| `api_key_service` | `api_key_service.py` | Mint / list / revoke API keys; `resolve()` turns an `X-API-Key` header into `(key, owner)`; `effective_role()` computes `min(key.role, owner.role, API_KEY_MAX_ROLE)` — the reason no key can satisfy `require_role(LEAD, ADMIN)` (plan 050). |
 | `defect_service` | `defect_service.py` | Jira/GitHub/GitLab defect creation via external APIs |
 | `email_service` | `email_service.py` | Mint a single-use token, build the `/set-password` or `/reset-password` link, enqueue the outbox row — `queue_welcome_invite`, `queue_password_reset` (plan 048). |
 | `email_outbox_service` | `email_outbox_service.py` | Durable email queue: `enqueue` (joins caller's txn), `claim_batch` (`FOR UPDATE SKIP LOCKED` → `sending`), `mark_sent` / `mark_failed` (exponential backoff, `failed` at `max_attempts`), `requeue_orphaned_sending` (plan 048). |

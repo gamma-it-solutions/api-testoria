@@ -6,6 +6,10 @@ Known issues and deferred improvements. Add items when debt is incurred, remove 
 
 ## Active items
 
+### Integration `client` fixture shares one session across requests (plan-050 follow-up)
+**Impact:** `tests/conftest.py` overrides `get_db` to yield the *same* `db_session` for every request a test makes, while production yields a fresh session (and identity map) per request. Any test that mutates data through one endpoint and then asserts on it through another can read a stale relationship: SQLAlchemy returns the identity-mapped object and `selectinload` does not refresh an already-populated collection. This produced a long-standing failure in `test_result_response_exposes_attachment_urls` (attachment created successfully, list endpoint reported zero) that looked like a product bug and was not.
+**Fix:** Either expire the session between requests in the `client` fixture (closest to production, but may surface staleness in other tests that currently rely on the cache), or give each request its own session from the same transaction/connection. Until then, tests crossing a write→read boundary need an explicit `db_session.expire_all()` — as that test now does, with a comment explaining why.
+
 ### API key project scope is a write guard, not a read ACL (plan-050)
 **Impact:** A key minted with `project_id` is enforced on `POST /test-runs/{id}/results/import`, but `project_id` is not in the path on most endpoints, so a scoped key can still **read** other projects at its effective role (`tester`). Users may reasonably read "scoped to project 7" as stronger than it is.
 **Fix:** Either thread the scope through a shared guard on every project-derived route (needs a resolver from run/suite/case → project on each), or resolve scope once in `get_principal` and filter list queries centrally. Until then the limit is documented in `docs/02-architecture/backend/auth.md`.

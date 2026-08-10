@@ -81,6 +81,27 @@ _MANAGER = (UserRole.LEAD, UserRole.ADMIN)
 _ADMIN   = (UserRole.ADMIN,)
 ```
 
+### `get_principal` / `require_jwt` (plan 050)
+
+`get_current_user` and `require_role` are thin wrappers over `get_principal`,
+which resolves **either** a JWT or an `X-API-Key` header into a `Principal`
+carrying the *effective* role. Every existing router is unchanged by that; the
+distinction only matters when a route needs the credential type or scope:
+
+```python
+# app/api/v1/api_keys.py — JWT only: a key must not mint or revoke keys
+@router.post("", response_model=ApiKeyCreateResponse, status_code=201)
+async def create_api_key(
+    data: ApiKeyCreate,
+    db: AsyncSession = Depends(get_db),
+    principal: Principal = Depends(require_jwt),
+) -> ApiKeyCreateResponse:
+    ...
+```
+
+Authorise on `principal.role`, never `principal.user.role` — for an API key the
+former is capped below the latter. See `auth.md`.
+
 ---
 
 ## URL pattern

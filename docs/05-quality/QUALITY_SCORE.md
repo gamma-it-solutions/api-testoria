@@ -4,19 +4,19 @@ Current state of quality metrics and targets for the Testoria backend.
 
 ---
 
-## Current state (as of 2026-06-03)
+## Current state (as of 2026-08-10)
 
 | Dimension | Status | Notes |
 |-----------|--------|-------|
 | Python strict typing (mypy) | Enabled | Strict mode configured in `pyproject.toml` |
 | Linting (ruff) | Passing | Replaces flake8 + isort |
-| Unit test coverage | Partial | Auth service: high. Plan-048 email/token/outbox services: 100% (`email_outbox_service`, `password_token_service`, `email_service`). Other services: partial. Run `pytest --cov=app` to check gap. |
-| Integration test coverage | Blocked | Docker Postgres test stack available (port 5433). Tests blocked by asyncpg greenlet conflict in session fixture — see tech-debt.md. (The plan-048 outbox SKIP-LOCKED concurrency test is Postgres-only and skips on SQLite.) |
+| Unit test coverage | Partial | Auth service: high. Plan-048 email/token/outbox services: 100%. Plan-050: `api_key_service` 88%, `result_import_service` 93% (target ≥85%, measured). Other services: partial. Run `pytest --cov=app` to check gap. |
+| Integration test coverage | Partial | Runs green on SQLite (default) — 509 passing. Plan-050's 95 new tests were also verified against real Postgres 16 (docker, port 5433). The asyncpg greenlet conflict in the session fixture still affects some older fixtures — see tech-debt.md. |
 | E2E tests | Partial | Full workflow test in `tests/e2e/test_full_workflow.py`. Needs expansion. |
 | API documentation | Complete | Auto-generated Swagger at `/docs`, Redoc at `/redoc`. |
 | DB schema documented | Complete | `docs/06-generated/db-schema.md` |
 | Endpoint reference documented | Complete | `docs/06-generated/endpoints.md` — all implemented phases documented |
-| Security | Partial | JWT auth, bcrypt, RBAC implemented. Plan 048: single-use Redis reset/invite tokens, no user enumeration. Plan 049: no public self-registration; user management is Lead+Admin with a Lead-capped-at-Lead escalation guard; creation is invite-only (no password accepted). Token blocklist on logout not yet done. |
+| Security | Partial | JWT auth, bcrypt, RBAC implemented. Plan 050: revocable, project-scopable API keys for CI, SHA-256 hashed, effective role capped at `tester` so no key can reach lead/admin routes; keys cannot mint or revoke keys (`require_jwt`). Plan 048: single-use Redis reset/invite tokens, no user enumeration. Plan 049: no public self-registration; user management is Lead+Admin with a Lead-capped-at-Lead escalation guard; creation is invite-only (no password accepted). Token blocklist on logout not yet done. |
 | Phase 3 Amendment gaps | Closed | All 4 API contract gaps shipped (message/stack_trace, result history, run-cases endpoint, attachment delete) — see tech-debt.md Resolved |
 | Phase 4 (WebSockets) | Complete | Centrifugo integration done (Plan 008) |
 | Phase 5 (Reporting) | Complete | Dashboard, run reports, metrics, custom reports, PDF/Excel export (Plan 009) |

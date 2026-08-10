@@ -194,6 +194,7 @@ alembic upgrade head
 | `c7f1a2b3d4e8` | Rename `result_attachments.file_path` to `object_key`; add `storage_backend` (plan 042) |
 | `f0a1b2c3d4e5` | Add `display_order` to test_cases (plan 046 / TES-69) |
 | `a1c2e3f40576` | Add `email_outbox` table (durable email queue; plan 048) |
+| `c3d4e5f60789` | Add `api_keys` table (CI/CLI credentials; plan 050) |
 
 ---
 

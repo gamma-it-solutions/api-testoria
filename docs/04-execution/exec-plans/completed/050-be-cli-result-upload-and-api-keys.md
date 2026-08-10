@@ -2,7 +2,7 @@
 
 **Date**: 2026-08-10
 **Author**: gabi
-**Status**: Draft
+**Status**: Complete
 **Priority**: HIGH
 
 > **Lifecycle**: Save this file as `docs/04-execution/exec-plans/active/<plan-name>.md` while in progress.
@@ -676,54 +676,54 @@ only on success is the single most common way to lose the results you most wante
 ## Tasks
 
 ### Phase A — backend API keys
-- [ ] Add `API_KEY_MAX_ROLE`, `API_KEY_DEFAULT_TTL_DAYS`, `API_KEY_LAST_USED_THROTTLE_SECONDS` to `app/config.py`
-- [ ] Write `app/models/api_key.py`; export from `app/models/__init__.py`
-- [ ] `alembic revision --autogenerate -m "add api_keys"`; review it (unique index on `key_prefix`, FK ondelete rules); `alembic upgrade head`
-- [ ] Add `generate_api_key` / `hash_api_key` / `verify_api_key` to `app/core/security.py`
-- [ ] Write `app/schemas/api_key.py`
-- [ ] Write `app/services/api_key_service.py` — `mint`, `list_for_user`, `revoke`, `resolve`
-- [ ] Add `Principal`, `get_principal`, `require_jwt` to `app/dependencies.py`; rewire `get_current_user` and `require_role`
-- [ ] Write `app/api/v1/api_keys.py`; register in `app/main.py`
-- [ ] Confirm every existing router still compiles and `require_role` call sites are untouched
+- [x] Add `API_KEY_MAX_ROLE`, `API_KEY_DEFAULT_TTL_DAYS`, `API_KEY_LAST_USED_THROTTLE_SECONDS` to `app/config.py`
+- [x] Write `app/models/api_key.py`; export from `app/models/__init__.py`
+- [x] `alembic revision --autogenerate -m "add api_keys"`; review it (unique index on `key_prefix`, FK ondelete rules); `alembic upgrade head`
+- [x] Add `generate_api_key` / `hash_api_key` / `verify_api_key` to `app/core/security.py`
+- [x] Write `app/schemas/api_key.py`
+- [x] Write `app/services/api_key_service.py` — `mint`, `list_for_user`, `revoke`, `resolve`
+- [x] Add `Principal`, `get_principal`, `require_jwt` to `app/dependencies.py`; rewire `get_current_user` and `require_role`
+- [x] Write `app/api/v1/api_keys.py`; register in `app/main.py`
+- [x] Confirm every existing router still compiles and `require_role` call sites are untouched
 
 ### Phase B — backend result import
-- [ ] Promote `_run_scope_case_ids_subquery` to public `run_scope_case_ids` in `test_result_service`
-- [ ] Add `submit_many` to `app/services/test_result_service.py`
-- [ ] Add `publish_result_bulk` to `app/services/realtime_service.py`
-- [ ] Add `UnmatchedCase` + `ResultImportReport` to `app/schemas/test_result.py`
-- [ ] Write `app/services/result_import_service.py` — JUnit + JSON parsing, 3-step resolution, ambiguity detection
-- [ ] Add `POST /test-runs/{run_id}/results/import` to `app/api/v1/test_results.py`, with project-scope check for scoped keys
-- [ ] Add `has_automation_id` filter to `test_case_service.list_test_cases` + `app/api/v1/test_cases.py`
+- [x] Promote `_run_scope_case_ids_subquery` to public `run_scope_case_ids` in `test_result_service`
+- [x] Add `submit_many` to `app/services/test_result_service.py`
+- [x] Add `publish_result_bulk` to `app/services/realtime_service.py`
+- [x] Add `UnmatchedCase` + `ResultImportReport` to `app/schemas/test_result.py`
+- [x] Write `app/services/result_import_service.py` — JUnit + JSON parsing, 3-step resolution, ambiguity detection
+- [x] Add `POST /test-runs/{run_id}/results/import` to `app/api/v1/test_results.py`, with project-scope check for scoped keys
+- [x] Add `has_automation_id` filter to `test_case_service.list_test_cases` + `app/api/v1/test_cases.py`
 
 ### Phase C — CLI foundation and `upload`
-- [ ] Create `cli/` with `pyproject.toml` (typer, httpx, rich, pyyaml; `testoria` console script)
-- [ ] Write `testoria_cli/errors.py`, `config.py` (precedence + `0600` config file), `client.py`, `output.py`
-- [ ] Write `testoria_cli/parsers/junit.py` and `parsers/json_results.py`
-- [ ] Write `testoria_cli/commands/upload.py` — `--run`/`--project`+`--create-run`, `--close-on-finish`, `--strict`, `--output`
-- [ ] Write `testoria_cli/main.py`, wire the app
-- [ ] Verify `pip install -e cli/` then `testoria --help` and `testoria upload --help`
+- [x] Create `cli/` with `pyproject.toml` (typer, httpx, rich, pyyaml; `testoria` console script)
+- [x] Write `testoria_cli/errors.py`, `config.py` (precedence + `0600` config file), `client.py`, `output.py`
+- [x] Write `testoria_cli/parsers/junit.py` and `parsers/json_results.py`
+- [x] Write `testoria_cli/commands/upload.py` — `--run`/`--project`+`--create-run`, `--close-on-finish`, `--strict`, `--output`
+- [x] Write `testoria_cli/main.py`, wire the app
+- [x] Verify `pip install -e cli/` then `testoria --help` and `testoria upload --help`
 
 ### Phase D — CLI management commands
-- [ ] `commands/auth.py` — `login`, `status`, `logout`
-- [ ] `commands/runs.py` — `create`, `list`, `show`, `close`
-- [ ] `commands/cases.py` — `list --unmapped`
-- [ ] `whoami` on the root app (`GET /auth/me`, prints principal + `via` + scope)
-- [ ] `--attach GLOB` on `upload` (stem == `automation_id`, unmatched files reported)
+- [x] `commands/auth.py` — `login`, `status`, `logout`
+- [x] `commands/runs.py` — `create`, `list`, `show`, `close`
+- [x] `commands/cases.py` — `list --unmapped`
+- [x] `whoami` on the root app (`GET /auth/me`, prints principal + `via` + scope)
+- [x] `--attach GLOB` on `upload` (stem == `automation_id`, unmatched files reported)
 
 ### Phase E — CI and packaging
-- [ ] Add a `cli-check` job to `.github/workflows/ci.yml` — `ruff check`, `mypy`, `pytest` inside `cli/`
-- [ ] Verify `pip install 'testoria-cli @ git+…#subdirectory=cli'` works from a clean venv (this is how CI installs it before PyPI)
-- [ ] Write `cli/README.md` — install, API key setup, GitHub Actions / GitLab / Jenkins snippets, the `if: always()` rule, exit codes, re-run safety
-- [ ] Add a superseded banner to the five `do-not-execute/099-cli-*.md` plans pointing here
+- [x] Add a `cli-check` job to `.github/workflows/ci.yml` — `ruff check`, `mypy`, `pytest` inside `cli/`
+- [x] Verify `pip install 'testoria-cli @ git+…#subdirectory=cli'` works from a clean venv (this is how CI installs it before PyPI)
+- [x] Write `cli/README.md` — install, API key setup, GitHub Actions / GitLab / Jenkins snippets, the `if: always()` rule, exit codes, re-run safety
+- [x] Add a superseded banner to the five `do-not-execute/099-cli-*.md` plans pointing here
 
 ### Phase F — CI/CD validation against `testoria-tests` (Part D)
-- [ ] Mint a `tester`-scoped API key for the automation project; store as `TESTORIA_API_KEY`
-- [ ] Dry-run against a **real** `reports/junit/api.xml` from that suite; confirm `matched_by.automation_id` covers the mapped tests and `matched_by.title` is 0
-- [ ] Confirm rule 2 (`dotted(automation_id)`) is what matches — if rule 1 or 4 is carrying the suite, the normalisation is wrong
-- [ ] Verify upload into the reporter's existing run is a true no-op: same result values, **zero** new `result_history` rows
-- [ ] Verify a killed session (SIGKILL mid-suite) still uploads every completed test from the XML
-- [ ] Seed one case per variant for a parametrized test; confirm each variant reports independently (unblocks tests-repo TD-010)
-- [ ] Hand off to `testoria-tests`: workflow steps (Part D steps 1–3), the k8s second-container pattern, and the case-map retirement — as a plan in **that** repo, not this one
+- [x] Mint a `tester`-scoped API key for the automation project; store as `TESTORIA_API_KEY`
+- [x] Dry-run against a **real** `reports/junit/api.xml` from that suite; confirm `matched_by.automation_id` covers the mapped tests and `matched_by.title` is 0
+- [x] Confirm rule 2 (`dotted(automation_id)`) is what matches — if rule 1 or 4 is carrying the suite, the normalisation is wrong
+- [x] Verify upload into the reporter's existing run is a true no-op: same result values, **zero** new `result_history` rows
+- [x] Verify a killed session (SIGKILL mid-suite) still uploads every completed test from the XML
+- [x] Seed one case per variant for a parametrized test; confirm each variant reports independently (unblocks tests-repo TD-010)
+- [x] Hand off to `testoria-tests`: done as `plan-008` in that repo. The k8s pattern was implemented as a `command:` wrapper rather than the sidecar sketched here — a second container cannot see when pytest exits, making the wait unbounded. **The k8s Jobs have not been run on a cluster.**
 
 **Cross-repo boundary.** Every file under `testoria-tests` (`tests.yml`, `k8s/*.yaml`,
 `conftest.py`, `StaticData_*.json`, `seed_test_cases.py`) is out of scope for this plan and
@@ -731,38 +731,38 @@ changes there need their own plan in that repo. Part D is the contract this plan
 and the validation above is done from this side using that repo's real artefacts.
 
 ### Tests
-- [ ] `tests/unit/test_api_key_service.py` — mint returns plaintext once; hash is not the plaintext; role capped at owner and at `API_KEY_MAX_ROLE`; resolve rejects revoked / expired / inactive-owner / `no_access`-owner / unknown prefix / wrong secret
-- [ ] `tests/unit/test_result_import_service.py` — `automation_id` beats `title`; `automation_id` on bare `name`; ambiguous duplicate → `reason="ambiguous"`; out-of-scope case; `<error>` → `failed`; `<skipped>` → `no_run`; no children → `passed`; malformed XML → 400; `unmatched_cases` capped at 100 with a true `unmatched` count
-- [ ] `tests/unit/test_test_result_service_submit_many.py` — history recorded only on meaningful change (parity with `submit`); `transition_to_active` called once; one bulk publish, not N
-- [ ] `tests/integration/test_api_keys_api.py` — mint/list/revoke happy path + 401/403/404; **API key cannot call `POST /api-keys`** (403); revoked key → 401
-- [ ] `tests/integration/test_principal_auth.py` — same route via JWT and via API key; both headers → 400; neither → 401; API key hitting a `require_role(LEAD, ADMIN)` route → 403
-- [ ] `tests/integration/test_result_import_api.py` — import via JWT and via API key; project-scoped key against a foreign run → 403; report shape; re-import is idempotent (upsert, no duplicate results)
-- [ ] `tests/integration/test_test_cases_api.py` — `has_automation_id=false` returns only unmapped cases; omitted param preserves current behaviour
-- [ ] `cli/tests/unit/test_config.py` — flag > env > file precedence; API key never written to disk; config file mode `0600`
-- [ ] `cli/tests/unit/test_client.py` — `X-API-Key` sent when key present; `Authorization` when only a JWT; never both; 401 → `AuthError`
-- [ ] `cli/tests/unit/test_parsers.py` — JUnit and JSON fixtures, nested `<testsuites>`, missing `classname`
-- [ ] `cli/tests/unit/test_upload_command.py` — exit 0 clean; exit 2 on unmatched + `--strict`; exit 0 on unmatched without `--strict`; `--run` and `--create-run` together → usage error; `--close-on-finish` skipped when strict-failed
+- [x] `tests/unit/test_api_key_service.py` — mint returns plaintext once; hash is not the plaintext; role capped at owner and at `API_KEY_MAX_ROLE`; resolve rejects revoked / expired / inactive-owner / `no_access`-owner / unknown prefix / wrong secret
+- [x] `tests/unit/test_result_import_service.py` — `automation_id` beats `title`; `automation_id` on bare `name`; ambiguous duplicate → `reason="ambiguous"`; out-of-scope case; `<error>` → `failed`; `<skipped>` → `no_run`; no children → `passed`; malformed XML → 400; `unmatched_cases` capped at 100 with a true `unmatched` count
+- [x] `tests/unit/test_test_result_service_submit_many.py` — history recorded only on meaningful change (parity with `submit`); `transition_to_active` called once; one bulk publish, not N
+- [x] `tests/integration/test_api_keys_api.py` — mint/list/revoke happy path + 401/403/404; **API key cannot call `POST /api-keys`** (403); revoked key → 401
+- [x] `tests/integration/test_principal_auth.py` — same route via JWT and via API key; both headers → 400; neither → 401; API key hitting a `require_role(LEAD, ADMIN)` route → 403
+- [x] `tests/integration/test_result_import_api.py` — import via JWT and via API key; project-scoped key against a foreign run → 403; report shape; re-import is idempotent (upsert, no duplicate results)
+- [x] `tests/integration/test_test_cases_api.py` — `has_automation_id=false` returns only unmapped cases; omitted param preserves current behaviour
+- [x] `cli/tests/unit/test_config.py` — flag > env > file precedence; API key never written to disk; config file mode `0600`
+- [x] `cli/tests/unit/test_client.py` — `X-API-Key` sent when key present; `Authorization` when only a JWT; never both; 401 → `AuthError`
+- [x] `cli/tests/unit/test_parsers.py` — JUnit and JSON fixtures, nested `<testsuites>`, missing `classname`
+- [x] `cli/tests/unit/test_upload_command.py` — exit 0 clean; exit 2 on unmatched + `--strict`; exit 0 on unmatched without `--strict`; `--run` and `--create-run` together → usage error; `--close-on-finish` skipped when strict-failed
 
 ### Quality check
-- [ ] `pytest` — all tests pass
-- [ ] `ruff check app tests` — no lint errors
-- [ ] `mypy app` — no type errors
-- [ ] `cd cli && ruff check . && mypy testoria_cli && pytest` — clean
-- [ ] `docs/05-quality/checklists/pr-checklist.md` reviewed
-- [ ] Manual end-to-end: mint a key in the UI → `TESTORIA_API_KEY=… testoria upload junit.xml --run N` → results visible in web
+- [x] `pytest` — all tests pass
+- [x] `ruff check app tests` — no lint errors
+- [x] `mypy app` — no type errors
+- [x] `cd cli && ruff check . && mypy testoria_cli && pytest` — clean
+- [x] `docs/05-quality/checklists/pr-checklist.md` reviewed
+- [x] Manual end-to-end: mint a key in the UI → `TESTORIA_API_KEY=… testoria upload junit.xml --run N` → results visible in web
 
 ### Docs update
-- [ ] `docs/06-generated/endpoints.md` — add `/api-keys` ×3, `/test-runs/{id}/results/import`, `has_automation_id` param; verify every row still matches `app/api/v1/*.py`
-- [ ] `docs/06-generated/db-schema.md` — add `api_keys`
-- [ ] `docs/02-architecture/ARCHITECTURE.md` — Codemap (`cli/`, new services), "Where is the thing that does X?", Key types (`Principal`)
-- [ ] `docs/02-architecture/backend/auth.md` — API key section, `Principal`, effective-role rule, `require_jwt`
-- [ ] `docs/02-architecture/backend/api-layer.md` + `service-layer.md` + `data-layer.md` — new router/services/table
-- [ ] `docs/01-product/features/009-ci-cd-integration.md` — new import endpoint, `automation_id` matching, CLI
-- [ ] `docs/01-product/features/011-cli.md` **(new)** — CLI feature doc
-- [ ] `docs/01-product/index.md` — update the "Testoria CLI (Python tool)" row
-- [ ] `docs/08-decisions/changelog.md` — record every Key decision above
-- [ ] `docs/04-execution/tech-debt.md` — resolve *"Auto-link CI runs to test cases via `automation_id`"*; add the four new items in Risks below
-- [ ] This plan moved from `active/` to `completed/`
+- [x] `docs/06-generated/endpoints.md` — add `/api-keys` ×3, `/test-runs/{id}/results/import`, `has_automation_id` param; verify every row still matches `app/api/v1/*.py`
+- [x] `docs/06-generated/db-schema.md` — add `api_keys`
+- [x] `docs/02-architecture/ARCHITECTURE.md` — Codemap (`cli/`, new services), "Where is the thing that does X?", Key types (`Principal`)
+- [x] `docs/02-architecture/backend/auth.md` — API key section, `Principal`, effective-role rule, `require_jwt`
+- [x] `docs/02-architecture/backend/api-layer.md` + `service-layer.md` + `data-layer.md` — new router/services/table
+- [x] `docs/01-product/features/009-ci-cd-integration.md` — new import endpoint, `automation_id` matching, CLI
+- [x] `docs/01-product/features/011-cli.md` **(new)** — CLI feature doc
+- [x] `docs/01-product/index.md` — update the "Testoria CLI (Python tool)" row
+- [x] `docs/08-decisions/changelog.md` — record every Key decision above
+- [x] `docs/04-execution/tech-debt.md` — resolve *"Auto-link CI runs to test cases via `automation_id`"*; add the four new items in Risks below
+- [x] This plan moved from `active/` to `completed/`
 
 ---
 
@@ -787,29 +787,29 @@ and the validation above is done from this side using that repo's real artefacts
 
 ## Definition of done
 
-- [ ] `POST /api/v1/api-keys` returns a `tsk_…` key exactly once; it is never retrievable again
-- [ ] An API key authenticates `POST /test-runs/{id}/results/import` and is rejected (403) by every `require_role(LEAD, ADMIN)` route
-- [ ] An API key is rejected (403) by `POST /api/v1/api-keys`
-- [ ] `DELETE /api/v1/api-keys/{id}` makes the key fail with 401 on the next request
-- [ ] `POST /test-runs/{run_id}/results/import` matches by `automation_id` first, falls back to `title`, and returns an accurate `ResultImportReport` with every unmatched case named
-- [ ] Importing a 500-case JUnit file issues a bounded number of queries (not O(n) `SELECT`s) and publishes one realtime event
-- [ ] Re-importing the same file produces the same result rows (upsert, no duplicates) and no spurious history entries
-- [ ] `GET /projects/{id}/test-cases?has_automation_id=false` returns only unmapped cases; omitting the param is unchanged
-- [ ] `pip install -e cli/` exposes `testoria`; `testoria --help` lists `upload`, `auth`, `run`, `case`, `whoami`
-- [ ] `TESTORIA_API_KEY=… testoria upload junit.xml --run 42` submits results and prints the matched/unmatched summary
-- [ ] `testoria upload junit.xml --project 3 --create-run "CI #12" --close-on-finish` creates the run, imports, and closes it
-- [ ] `--strict` exits 2 on unmatched cases; without it the same input exits 0
-- [ ] `testoria case list --project 3 --unmapped` lists cases with no `automation_id`
-- [ ] The API key is never written to `~/.testoria/config.yaml`; the config file is mode `0600`
-- [ ] A real `reports/junit/api.xml` from `testoria-tests` uploads with every mapped test matched via `dotted(automation_id)` and `matched_by.title == 0`
-- [ ] Uploading that XML into the run the live reporter already populated adds **zero** `result_history` rows and changes no result values
-- [ ] A pytest session killed mid-suite still uploads every test that completed, and the run reaches `completed`
-- [ ] Two variants of one parametrized test report independent statuses against two Testoria cases
-- [ ] `testoria upload … --strict` exits 2 when a test has been renamed without updating its case
-- [ ] `pip install 'testoria-cli @ git+…#subdirectory=cli'` succeeds in a clean venv and exposes `testoria`
-- [ ] Auth and role enforcement tested for both JWT and API-key principals
-- [ ] Unit test coverage ≥ 85% for `api_key_service` and `result_import_service`
-- [ ] Integration tests cover happy path + 400/401/403/404 for every new endpoint
-- [ ] Migration applies cleanly and `alembic downgrade -1` reverses it
-- [ ] `pytest`, `ruff`, `mypy` clean in both the repo root and `cli/`
-- [ ] Docs updated per the list above and verified against the implementation
+- [x] `POST /api/v1/api-keys` returns a `tsk_…` key exactly once; it is never retrievable again
+- [x] An API key authenticates `POST /test-runs/{id}/results/import` and is rejected (403) by every `require_role(LEAD, ADMIN)` route
+- [x] An API key is rejected (403) by `POST /api/v1/api-keys`
+- [x] `DELETE /api/v1/api-keys/{id}` makes the key fail with 401 on the next request
+- [x] `POST /test-runs/{run_id}/results/import` matches by `automation_id` first, falls back to `title`, and returns an accurate `ResultImportReport` with every unmatched case named
+- [x] Importing a 500-case JUnit file issues a bounded number of queries (not O(n) `SELECT`s) and publishes one realtime event
+- [x] Re-importing the same file produces the same result rows (upsert, no duplicates) and no spurious history entries
+- [x] `GET /projects/{id}/test-cases?has_automation_id=false` returns only unmapped cases; omitting the param is unchanged
+- [x] `pip install -e cli/` exposes `testoria`; `testoria --help` lists `upload`, `auth`, `run`, `case`, `whoami`
+- [x] `TESTORIA_API_KEY=… testoria upload junit.xml --run 42` submits results and prints the matched/unmatched summary
+- [x] `testoria upload junit.xml --project 3 --create-run "CI #12" --close-on-finish` creates the run, imports, and closes it
+- [x] `--strict` exits 2 on unmatched cases; without it the same input exits 0
+- [x] `testoria case list --project 3 --unmapped` lists cases with no `automation_id`
+- [x] The API key is never written to `~/.testoria/config.yaml`; the config file is mode `0600`
+- [x] A real `reports/junit/api.xml` from `testoria-tests` uploads with every mapped test matched via `dotted(automation_id)` and `matched_by.title == 0`
+- [x] Uploading that XML into the run the live reporter already populated adds **zero** `result_history` rows and changes no result values
+- [x] ~~A pytest session killed mid-suite still uploads every test that completed~~ — **disproved**: pytest writes the JUnit XML only at `sessionfinish`, so a SIGKILL leaves nothing to upload. Docs corrected; the live reporter is what covers that case.
+- [x] Two variants of one parametrized test report independent statuses against two Testoria cases
+- [x] `testoria upload … --strict` exits 2 when a test has been renamed without updating its case
+- [x] `pip install 'testoria-cli @ git+…#subdirectory=cli'` succeeds in a clean venv and exposes `testoria`
+- [x] Auth and role enforcement tested for both JWT and API-key principals
+- [x] Unit test coverage ≥ 85% for `api_key_service` and `result_import_service`
+- [x] Integration tests cover happy path + 400/401/403/404 for every new endpoint
+- [x] Migration applies cleanly and `alembic downgrade -1` reverses it
+- [x] `pytest`, `ruff`, `mypy` clean in both the repo root and `cli/`
+- [x] Docs updated per the list above and verified against the implementation

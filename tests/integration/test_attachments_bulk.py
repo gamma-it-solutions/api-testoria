@@ -217,15 +217,27 @@ async def test_bulk_upload_empty_bytes_are_quarantined(
 
 async def test_result_response_exposes_attachment_urls(
     client: AsyncClient,
+    db_session: AsyncSession,
     run_id: int,
     result_id: int,
     tester_headers: dict[str, str],
 ) -> None:
-    await client.post(
+    upload = await client.post(
         f"/api/v1/test-results/{result_id}/attachments/bulk",
         files=[("files", ("a.png", _tiny_png(), "image/png"))],
         headers=tester_headers,
     )
+    assert upload.status_code == 201
+    assert len(upload.json()["uploaded"]) == 1
+
+    # The `client` fixture reuses one session for every request, so the
+    # TestResult stays in the identity map with the empty `attachments`
+    # collection it was loaded with — `selectinload` will not refresh an
+    # already-populated relationship. Production never sees this: `get_db`
+    # yields a fresh session (and identity map) per request. Expiring here
+    # reproduces that, rather than asserting on a cache artefact.
+    db_session.expire_all()
+
     list_resp = await client.get(
         f"/api/v1/test-runs/{run_id}/results",
         headers=tester_headers,
